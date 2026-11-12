@@ -2,6 +2,7 @@
 import unittest
 
 from opendbc.car.structs import CarParams
+from opendbc.car.mg.values import MgSafetyFlags
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.libsafety import libsafety_py
 
@@ -85,6 +86,45 @@ class TestMGSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
       self.assertFalse(self._rx(libsafety_py.make_CANPacket(0x1ec, 0, corrupt)))
 
     for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_brake_msg, self._pcm_status_msg):
+      self._reset_safety_hooks()
+      self.assertTrue(self._rx(make_msg(0)))
+
+      msg = make_msg(0)
+      msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
+      self.assertFalse(self._rx(msg))
+
+
+class TestMGNonEVSafety(TestMGSafety):
+  # ICE/PHEV (MG HS PHEV): gas from ECM, brake from driver brake pressure
+  SAFETY_PARAM = MgSafetyFlags.NON_EV
+
+  def _user_brake_msg(self, brake):
+    values = {"BrkPdlDrvrAppdPrsHSC2": 150 if brake else 0}
+    return self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, values)
+
+  def _user_gas_msg(self, gas):
+    values = {"AccelActuPosHSC2": 100 if gas else 0}
+    return self.packer.make_can_msg_safety("Tester_HSC2_ECM_FrP00", 0, values)
+
+  def test_brake_threshold(self):
+    # a single 75 kPa bit is noise, not a pressed pedal
+    self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 75}))
+    self.assertFalse(self.safety.get_brake_pressed_prev())
+    self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 150}))
+    self.assertTrue(self.safety.get_brake_pressed_prev())
+
+  def test_ev_pedal_msgs_ignored(self):
+    # EV gas/brake messages must not affect the NON_EV safety state
+    self._rx(self.packer.make_can_msg_safety("GW_HSC2_HCU_FrP00", 0, {"EPTAccelActuPosHSC2": 100}))
+    self.assertFalse(self.safety.get_gas_pressed_prev())
+    self._rx(self.packer.make_can_msg_safety("EHBS_HSC2_FrP00", 0, {"BrkPdlAppdHSC2": 1}))
+    self.assertFalse(self.safety.get_brake_pressed_prev())
+
+  def test_gas_counter(self):
+    pass  # the ECM gas message has no counter check
+
+  def test_rx_checksums(self):
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._pcm_status_msg):
       self._reset_safety_hooks()
       self.assertTrue(self._rx(make_msg(0)))
 

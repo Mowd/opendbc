@@ -382,6 +382,8 @@ typedef struct {
   bool hyundai_canfd_alt_buttons;
   bool hyundai_canfd_lka_steer_msg_alt;
 
+  bool mg_non_ev;
+
   bool nissan_alt_eps;
 
   bool subaru_gen2;

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import IntFlag
 
 from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms
 from opendbc.car.docs_definitions import CarHarness, CarDocs, CarParts
@@ -18,6 +19,7 @@ class MgPlatformConfig(PlatformConfig):
 
 class CAR(Platforms):
   MG_5_EV = MgPlatformConfig([MgCarDocs("MG 5 EV 2021")], CarSpecs(wheelbase=2.66, steerRatio=15.8))
+  MG_HS = MgPlatformConfig([MgCarDocs("MG HS PHEV 2023")], CarSpecs(wheelbase=2.72, steerRatio=15.8))
 
 
 FW_QUERY_CONFIG = FwQueryConfig(
@@ -43,5 +45,11 @@ class CarControllerParams:
   def __init__(self, CP):
     pass
 
+
+class MgSafetyFlags(IntFlag):
+  NON_EV = 1  # ICE/PHEV: gas from ECM (0xc9), brake from driver brake pressure (0x214)
+
+
+NON_EV_CAR = {CAR.MG_HS}
 
 DBC = CAR.create_dbc_map()

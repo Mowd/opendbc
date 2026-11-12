@@ -78,8 +78,15 @@ static void mg_rx_hook(const CANPacket_t *msg) {
   }
 
   // Gas pressed
-  if (msg_matches(msg, 0xafU, 0U)) {
-    safety.gas_pressed = msg->data[0] != 0U;
+  if (safety_setup.mg_non_ev) {
+    if (msg_matches(msg, 0xc9U, 0U)) {
+      // Tester_HSC2_ECM_FrP00 AccelActuPosHSC2
+      safety.gas_pressed = msg->data[4] != 0U;
+    }
+  } else {
+    if (msg_matches(msg, 0xafU, 0U)) {
+      safety.gas_pressed = msg->data[0] != 0U;
+    }
   }
 
   // Driver torque
@@ -89,8 +96,15 @@ static void mg_rx_hook(const CANPacket_t *msg) {
   }
 
   // Brake pressed
-  if (msg_matches(msg, 0x1b6U, 0U)) {
-    safety.brake_pressed = GET_BIT(msg, 10U);
+  if (safety_setup.mg_non_ev) {
+    if (msg_matches(msg, 0x214U, 0U)) {
+      // SCS_HSC2_FrP09 BrkPdlDrvrAppdPrsHSC2, 75 kPa per bit; pressed above 100 kPa
+      safety.brake_pressed = msg->data[1] > 1U;
+    }
+  } else {
+    if (msg_matches(msg, 0x1b6U, 0U)) {
+      safety.brake_pressed = GET_BIT(msg, 10U);
+    }
   }
 
   // Cruise state
@@ -120,7 +134,9 @@ static bool mg_tx_hook(const CANPacket_t *msg) {
 }
 
 static safety_config mg_init(uint16_t param) {
-  SAFETY_UNUSED(param);
+  const uint16_t MG_PARAM_NON_EV = 1;
+  // ICE/PHEV (e.g. MG HS PHEV): gas and brake come from different messages than the EVs
+  safety_setup.mg_non_ev = GET_FLAG(param, MG_PARAM_NON_EV);
 
   static const CanMsg MG_TX_MSGS[] = {{0x1fd, 0, 8, .check_relay = true}};
 
@@ -132,8 +148,20 @@ static safety_config mg_init(uint16_t param) {
     {.msg = {{0x1b6, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EHBS_HSC2_FrP00 (brake pedal)
   };
 
+  static const RxCheck mg_non_ev_rx_checks[] = {
+    {.msg = {{0x23c, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP19 (speed)
+    {.msg = {{0xc9,  0, 8, .frequency = 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // Tester_HSC2_ECM_FrP00 (gas pedal)
+    {.msg = {{0x1ec, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPS_HSC2_FrP03 (driver torque)
+    {.msg = {{0x242, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // RADAR_HSC2_FrP00 (cruise state)
+    {.msg = {{0x214, 0, 6, .frequency = 50U,  .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP09 (brake pressure)
+  };
+
   safety_config ret;
-  SET_RX_CHECKS(mg_rx_checks, ret);
+  if (safety_setup.mg_non_ev) {
+    SET_RX_CHECKS(mg_non_ev_rx_checks, ret);
+  } else {
+    SET_RX_CHECKS(mg_rx_checks, ret);
+  }
   SET_TX_MSGS(MG_TX_MSGS, ret);
   return ret;
 }

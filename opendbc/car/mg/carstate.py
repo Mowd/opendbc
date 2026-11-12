@@ -1,7 +1,7 @@
 from opendbc.can.parser import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mg.values import DBC
+from opendbc.car.mg.values import DBC, NON_EV_CAR
 from opendbc.car.common.conversions import Conversions as CV
 
 GearShifter = structs.CarState.GearShifter
@@ -14,23 +14,42 @@ GEAR_MAP = {
   **{i: GearShifter.drive for i in range(1, 9)},
 }
 
+# TrShftLvrPos_h1HSC2 (shift lever position), used by ICE/PHEV
+GEAR_MAP_NON_EV = {
+  1: GearShifter.park,
+  2: GearShifter.reverse,
+  3: GearShifter.neutral,
+  **{i: GearShifter.drive for i in range(4, 12)},
+}
+
 
 class CarState(CarStateBase):
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
     cp_cam = can_parsers[Bus.cam]
     ret = structs.CarState()
+    non_ev = self.CP.carFingerprint in NON_EV_CAR
 
     # Vehicle speed
     ret.vEgoRaw = cp.vl["SCS_HSC2_FrP19"]["VehSpdAvgHSC2"] * CV.KPH_TO_MS
     ret.vEgo, ret.aEgo = self.update_speed_kf(ret.vEgoRaw)
-    ret.standstill = cp.vl["SCS_HSC2_FrP24"]["VehSdslStsHSC2"] == 1
+    if non_ev:
+      ret.standstill = ret.vEgoRaw < 0.01
+    else:
+      ret.standstill = cp.vl["SCS_HSC2_FrP24"]["VehSdslStsHSC2"] == 1
 
     # Gas pedal
-    ret.gasPressed = cp.vl["GW_HSC2_HCU_FrP00"]["EPTAccelActuPosHSC2"] > 0
+    if non_ev:
+      ret.gasPressed = cp.vl["Tester_HSC2_ECM_FrP00"]["AccelActuPosHSC2"] > 0
+    else:
+      ret.gasPressed = cp.vl["GW_HSC2_HCU_FrP00"]["EPTAccelActuPosHSC2"] > 0
 
     # Brake pedal
-    ret.brakePressed = cp.vl["EHBS_HSC2_FrP00"]["BrkPdlAppdHSC2"] == 1
+    if non_ev:
+      # driver applied brake pressure, 75 kPa per bit; keep in sync with safety (raw > 1)
+      ret.brakePressed = cp.vl["SCS_HSC2_FrP09"]["BrkPdlDrvrAppdPrsHSC2"] > 100
+    else:
+      ret.brakePressed = cp.vl["EHBS_HSC2_FrP00"]["BrkPdlAppdHSC2"] == 1
 
     # Steering wheel
     ret.steeringAngleDeg = cp.vl["SAS_HSC2_FrP00"]["StrgWhlAngHSC2"]
@@ -50,13 +69,20 @@ class CarState(CarStateBase):
     ret.accFaulted = cp.vl["RADAR_HSC2_FrP00"]["ACCSysFltSts_SCSHSC2"] != 0
 
     # Gear
-    ret.gearShifter = GEAR_MAP.get(int(cp.vl["GW_HSC2_ECM_FrP04"]["TrEstdGearHSC2"]), GearShifter.unknown)
+    if non_ev:
+      ret.gearShifter = GEAR_MAP_NON_EV.get(int(cp.vl["GW_HSC2_ECM_FrP04"]["TrShftLvrPos_h1HSC2"]), GearShifter.unknown)
+    else:
+      ret.gearShifter = GEAR_MAP.get(int(cp.vl["GW_HSC2_ECM_FrP04"]["TrEstdGearHSC2"]), GearShifter.unknown)
 
     # Doors
-    ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
-                        cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
-                        cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
-                        cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
+    if non_ev:
+      ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenSts_H1_Safety"],
+                          cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"]])
+    else:
+      ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
+                          cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
+                          cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
+                          cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
 
     # Blinkers
     ret.leftBlinker = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1
