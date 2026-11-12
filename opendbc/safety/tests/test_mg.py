@@ -124,13 +124,13 @@ class TestMGNonEVSafety(TestMGSafety):
     pass  # the ECM gas message has no counter check
 
   def test_rx_checksums(self):
-    for make_msg in (self._speed_msg, self._torque_driver_msg, self._pcm_status_msg):
+    # MG HS: checksums and counters are not checked (MG 5 EV layout not assumed)
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_brake_msg, self._user_gas_msg, self._pcm_status_msg):
       self._reset_safety_hooks()
-      self.assertTrue(self._rx(make_msg(0)))
-
-      msg = make_msg(0)
-      msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
-      self.assertFalse(self._rx(msg))
+      for _ in range(common.MAX_WRONG_COUNTERS + 2):
+        msg = make_msg(0)
+        msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
+        self.assertTrue(self._rx(msg))
 
 
 if __name__ == "__main__":

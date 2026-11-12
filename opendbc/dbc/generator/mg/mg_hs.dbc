@@ -1,0 +1,8 @@
+CM_ "IMPORT ../../mg.dbc";
+
+CM_ "MG HS: same messages as mg.dbc, but under its own name so the MG 5 EV checksums are not applied";
+
+BO_ 516 RDA_HSC1_P02: 8 RDA
+ SG_ LBSDAndLCAWrnng_HS : 7|2@0+ (1,0) [0|3] ""  FVCM
+ SG_ RBSDAndLCAWrnng_HS : 5|2@0+ (1,0) [0|3] ""  FVCM
+ SG_ RDASysSta_HS : 23|5@0+ (1,0) [0|31] ""  FVCM

@@ -19,17 +19,24 @@ class MgPlatformConfig(PlatformConfig):
 
 class CAR(Platforms):
   MG_5_EV = MgPlatformConfig([MgCarDocs("MG 5 EV 2021")], CarSpecs(wheelbase=2.66, steerRatio=15.8))
-  MG_HS = MgPlatformConfig([MgCarDocs("MG HS PHEV 2023")], CarSpecs(wheelbase=2.72, steerRatio=15.8))
+  # MG HS shares its ADAS (camera/radar) with the MG ZS, not the MG 5 EV, so it follows the original hs branch:
+  # its own DBC name means the MG 5 EV CAN checksums are not validated
+  MG_HS = MgPlatformConfig(
+    [MgCarDocs("MG HS PHEV 2023")],
+    CarSpecs(wheelbase=2.72, steerRatio=15.8),
+    {Bus.pt: 'mg_hs_generated'},
+  )
 
 
 FW_QUERY_CONFIG = FwQueryConfig(
   fw_version_regex=br"\x10[\x00-\xff]{3}\x01",
+  # query every bus like the original hs branch: where the ECUs sit depends on the car and harness
   requests=[
     Request(
       [StdQueries.TESTER_PRESENT_REQUEST, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_REQUEST],
       [StdQueries.TESTER_PRESENT_RESPONSE, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_RESPONSE],
-      bus=1,
-    ),
+      bus=bus,
+    ) for bus in range(3)
   ],
 )
 

@@ -61,12 +61,18 @@ class CarState(CarStateBase):
     ret.steerFaultTemporary = cp_cam.vl["FVCM_HSC2_FrP02"]["LDWSysFltStsHSC2"] != 0
 
     # Cruise state
-    ret.cruiseState.enabled = cp.vl["RADAR_HSC2_FrP00"]["ACCSysSts_RadarHSC2"] in (2, 3)  # Active, Override
-    ret.cruiseState.available = cp.vl["RADAR_HSC2_FrP00"]["ACCSysSts_RadarHSC2"] != 0
-    ret.cruiseState.standstill = False
+    acc_state = cp.vl["RADAR_HSC2_FrP00"]["ACCSysSts_RadarHSC2"]
+    ret.cruiseState.enabled = acc_state in (2, 3)  # Active, Override
     ret.cruiseState.speed = cp.vl["RADAR_HSC2_FrP02"]["ACCDrvrSelTrgtSpd_RadarHSC2"] * CV.KPH_TO_MS
-
-    ret.accFaulted = cp.vl["RADAR_HSC2_FrP00"]["ACCSysFltSts_SCSHSC2"] != 0
+    if non_ev:
+      # MG HS (ZS-family ADAS): as in the original hs branch
+      ret.cruiseState.available = True
+      ret.cruiseState.standstill = acc_state == 6  # Standstill Wait
+      ret.accFaulted = cp_cam.vl["FVCM_HSC2_FrP02"]["TJAICASysFltStsHSC2"] != 0
+    else:
+      ret.cruiseState.available = acc_state != 0
+      ret.cruiseState.standstill = False
+      ret.accFaulted = cp.vl["RADAR_HSC2_FrP00"]["ACCSysFltSts_SCSHSC2"] != 0
 
     # Gear
     if non_ev:
@@ -90,6 +96,11 @@ class CarState(CarStateBase):
 
     # Seatbelt
     ret.seatbeltUnlatched = cp.vl["GW_HSC2_SDM_FrP00"]["DrvrSbltAtcHSC2"] != 1
+
+    if non_ev:
+      # Blindspot (RDA_HSC1_P02, only in the mg_hs DBC)
+      ret.leftBlindspot = cp.vl["RDA_HSC1_P02"]["LBSDAndLCAWrnng_HS"] > 0
+      ret.rightBlindspot = cp.vl["RDA_HSC1_P02"]["RBSDAndLCAWrnng_HS"] > 0
 
     return ret
 
