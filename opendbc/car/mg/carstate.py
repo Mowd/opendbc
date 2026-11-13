@@ -104,8 +104,13 @@ class CarState(CarStateBase):
                           cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
 
     # Blinkers
-    ret.leftBlinker = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1
-    ret.rightBlinker = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 2
+    left_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1
+    right_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 2
+    if non_ev:
+      # a short "comfort" tap only shows on the stalk switch for a moment: hold it 1 s (100 frames)
+      ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(100, left_stalk, right_stalk)
+    else:
+      ret.leftBlinker, ret.rightBlinker = left_stalk, right_stalk
 
     # Seatbelt
     ret.seatbeltUnlatched = cp.vl["GW_HSC2_SDM_FrP00"]["DrvrSbltAtcHSC2"] != 1
