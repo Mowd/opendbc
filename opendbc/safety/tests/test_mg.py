@@ -58,8 +58,19 @@ class TestMGSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
     return msg
 
   def _pcm_status_msg(self, enable):
-    values = {"ACCSysSts_RadarHSC2": 2 if enable else 1, "ACCSysAlvRlngCtr_SCSHSC2": self._counter(0x242)}
+    return self._acc_state_msg(2 if enable else 1)
+
+  def _acc_state_msg(self, state):
+    values = {"ACCSysSts_RadarHSC2": state, "ACCSysAlvRlngCtr_SCSHSC2": self._counter(0x242)}
     return self.packer.make_can_msg_safety("RADAR_HSC2_FrP00", 0, values)
+
+  def test_standstill_not_engaged(self):
+    # MG 5 EV: the standstill ACC states are not verified, they don't count as engaged
+    for state in (5, 6):
+      self.safety.set_controls_allowed(True)
+      self._rx(self._acc_state_msg(2))
+      self._rx(self._acc_state_msg(state))
+      self.assertFalse(self.safety.get_controls_allowed())
 
   def test_gas_counter(self):
     self._reset_safety_hooks()
@@ -97,6 +108,45 @@ class TestMGSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
 class TestMGNonEVSafety(TestMGSafety):
   # ICE/PHEV (MG HS PHEV): gas from ECM, brake from driver brake pressure
   SAFETY_PARAM = MgSafetyFlags.NON_EV
+
+  TX_MSGS = [[0x1fd, 0], [0x1e1, 0]]
+
+  # GW_HSC2_FrP04 frames captured on an MG HS PHEV: On switch held, counter 0
+  BUTTONS_IDLE = bytes.fromhex("40c00000000000")
+  BUTTONS_RESUME = bytes.fromhex("60a00000000000")
+
+  def _button_msg(self, dat):
+    return libsafety_py.make_CANPacket(0x1e1, 0, dat)
+
+  def test_standstill_not_engaged(self):
+    pass
+
+  def test_standstill_engaged(self):
+    # Active -> Standstill Active -> Standstill Wait keeps controls allowed
+    self.safety.set_controls_allowed(False)
+    self._rx(self._acc_state_msg(1))
+    self._rx(self._acc_state_msg(2))
+    self.assertTrue(self.safety.get_controls_allowed())
+    for state in (5, 6, 2):
+      self._rx(self._acc_state_msg(state))
+      self.assertTrue(self.safety.get_controls_allowed())
+    self._rx(self._acc_state_msg(1))
+    self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_resume_button(self):
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      self.assertEqual(controls_allowed, self._tx(self._button_msg(self.BUTTONS_RESUME)))
+      self.assertFalse(self._tx(self._button_msg(self.BUTTONS_IDLE)))
+
+  def test_other_buttons_blocked(self):
+    self.safety.set_controls_allowed(True)
+    # SpdDec, SpdInc, Set, Cancel (byte 0) and DistDec, DistInc (byte 2), alone and with RES
+    for byte, bit in ((0, 2), (0, 3), (0, 4), (0, 7), (2, 2), (2, 3)):
+      for base in (self.BUTTONS_IDLE, self.BUTTONS_RESUME):
+        dat = bytearray(base)
+        dat[byte] |= 1 << bit
+        self.assertFalse(self._tx(self._button_msg(bytes(dat))), (byte, bit, base.hex()))
 
   def _user_brake_msg(self, brake):
     values = {"BrkPdlDrvrAppdPrsHSC2": 150 if brake else 0}

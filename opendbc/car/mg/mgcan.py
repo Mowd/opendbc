@@ -31,6 +31,20 @@ def create_lka_steering(packer, counter, apply_torque, active):
   return packer.make_can_msg("FVCM_HSC2_FrP03", 0, values)
 
 
+def create_cruise_buttons(packer, buttons_msg, counter):
+  # MG HS: copy of the gateway's cruise switch frame (GW_HSC2_FrP04) with only RES pressed
+  values = {s: buttons_msg[s] for s in ("CCSwStsSwDataIntgty_h2HSC2", "CCSwStsOnSwA_h2HSC2")}
+  values.update({
+    "CCSwStsRsmSwA_h2HSC2": 1,
+    "CCSwStsAlvRC_h2HSC2": counter,
+    "CCSwStsPV_h2HSC2": 0,
+  })
+  # PV: all 7 bytes sum to 0 (mod 256), checked against captured frames
+  dat = packer.make_can_msg("GW_HSC2_FrP04", 0, values)[1]
+  values["CCSwStsPV_h2HSC2"] = -sum(dat) & 0xFF
+  return packer.make_can_msg("GW_HSC2_FrP04", 0, values)
+
+
 def mg_checksum(address: int, sig, d: bytearray) -> int:
   if address == 0x1EC:
     torque = ((d[0] & 0x7) << 8) | d[1]

@@ -112,6 +112,12 @@ static void mg_rx_hook(const CANPacket_t *msg) {
     int cruise_state = (msg->data[5] & 0x38U) >> 3;
     bool cruise_engaged = (cruise_state == 2) ||  // Active
                           (cruise_state == 3);    // Override
+    if (safety_setup.mg_non_ev) {
+      // MG HS: ACC stays engaged while stopped behind a lead (keep in sync with carstate)
+      cruise_engaged = cruise_engaged ||
+                       (cruise_state == 5) ||     // Standstill Active
+                       (cruise_state == 6);       // Standstill Wait
+    }
     pcm_cruise_check(cruise_engaged);
   }
 }
@@ -127,10 +133,23 @@ static bool mg_tx_hook(const CANPacket_t *msg) {
     .type = TorqueDriverLimited,
   };
 
-  // The TX list dispatches only steering control (0x1fd, bus 0) to this hook.
-  int desired_torque = (((msg->data[0] & 0x7U) << 8) | msg->data[1]) - 1024U;
-  bool steer_req = GET_BIT(msg, 35U);
-  return !steer_torque_cmd_checks(desired_torque, steer_req, MG_STEERING_LIMITS);
+  bool tx = true;
+
+  // Steering control
+  if (msg->addr == 0x1fdU) {
+    int desired_torque = (((msg->data[0] & 0x7U) << 8) | msg->data[1]) - 1024U;
+    bool steer_req = GET_BIT(msg, 35U);
+    tx = !steer_torque_cmd_checks(desired_torque, steer_req, MG_STEERING_LIMITS);
+  }
+
+  // Cruise switches (MG HS only): only RES, only while engaged, to leave standstill
+  if (msg->addr == 0x1e1U) {
+    // byte 0: SpdDec bit 2, SpdInc bit 3, Set bit 4, Rsm bit 5, Cancel bit 7; byte 2: DistDec bit 2, DistInc bit 3
+    bool only_resume = ((msg->data[0] & 0xBCU) == 0x20U) && ((msg->data[2] & 0x0CU) == 0U);
+    tx = only_resume && safety.controls_allowed;
+  }
+
+  return tx;
 }
 
 static safety_config mg_init(uint16_t param) {
@@ -139,6 +158,10 @@ static safety_config mg_init(uint16_t param) {
   safety_setup.mg_non_ev = GET_FLAG(param, MG_PARAM_NON_EV);
 
   static const CanMsg MG_TX_MSGS[] = {{0x1fd, 0, 8, .check_relay = true}};
+  static const CanMsg MG_NON_EV_TX_MSGS[] = {
+    {0x1fd, 0, 8, .check_relay = true},   // FVCM_HSC2_FrP03 (steering)
+    {0x1e1, 0, 7, .check_relay = false},  // GW_HSC2_FrP04 (cruise switches, also sent by the gateway)
+  };
 
   static const RxCheck mg_rx_checks[] = {
     {.msg = {{0x23c, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP19 (speed)
@@ -161,10 +184,11 @@ static safety_config mg_init(uint16_t param) {
   safety_config ret;
   if (safety_setup.mg_non_ev) {
     SET_RX_CHECKS(mg_non_ev_rx_checks, ret);
+    SET_TX_MSGS(MG_NON_EV_TX_MSGS, ret);
   } else {
     SET_RX_CHECKS(mg_rx_checks, ret);
+    SET_TX_MSGS(MG_TX_MSGS, ret);
   }
-  SET_TX_MSGS(MG_TX_MSGS, ret);
   return ret;
 }
 
