@@ -5,6 +5,10 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.mg.mgcan import create_cruise_buttons, create_lka_steering
 from opendbc.car.mg.values import CarControllerParams, NON_EV_CAR
 
+# RES tap timing, in gateway cruise switch frames (~30 ms each)
+RESUME_PRESS_FRAMES = 4  # a real stalk press is ~6 frames, 3 is already enough
+RESUME_RETRY_FRAMES = 33  # ~1 s between taps if the car hasn't moved off yet
+
 
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
@@ -14,6 +18,7 @@ class CarController(CarControllerBase):
 
     self.apply_torque_last = 0
     self.last_button_counter = -1
+    self.resume_frames = 0
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -32,13 +37,19 @@ class CarController(CarControllerBase):
 
     # MG HS stop and go: in Standstill Wait the ACC only moves off after RES. When openpilot's
     # planner (CC.cruiseControl.resume) and the radar's go prompt agree the lead has left,
-    # send RES right after each gateway cruise switch frame, with the next counter value
+    # tap RES right after gateway cruise switch frames, with the next counter value.
+    # The ACC only moves off once RES is released: holding it (sending every frame) is ignored,
+    # and also masks the driver's own RES presses, so press for a few frames then let go
     if self.CP.carFingerprint in NON_EV_CAR and CS.cruise_buttons_msg is not None:
       counter = int(CS.cruise_buttons_msg["CCSwStsAlvRC_h2HSC2"])
       if counter != self.last_button_counter:
         self.last_button_counter = counter
         if CC.cruiseControl.resume and CS.acc_go_notifier:
-          can_sends.append(create_cruise_buttons(self.packer, CS.cruise_buttons_msg, (counter + 1) % 4))
+          if self.resume_frames % RESUME_RETRY_FRAMES < RESUME_PRESS_FRAMES:
+            can_sends.append(create_cruise_buttons(self.packer, CS.cruise_buttons_msg, (counter + 1) % 4))
+          self.resume_frames += 1
+        else:
+          self.resume_frames = 0
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.params.STEER_MAX
