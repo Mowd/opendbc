@@ -30,13 +30,19 @@ class CAR(Platforms):
 
 FW_QUERY_CONFIG = FwQueryConfig(
   fw_version_regex=br"\x10[\x00-\xff]{3}\x01",
-  # query every bus like the original hs branch: where the ECUs sit depends on the car and harness
   requests=[
+    # MG 5 EV: through the OBD port
     Request(
       [StdQueries.TESTER_PRESENT_REQUEST, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_REQUEST],
       [StdQueries.TESTER_PRESENT_RESPONSE, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_RESPONSE],
-      bus=bus,
-    ) for bus in range(3)
+      bus=1,
+    ),
+    # MG HS: the EPS, camera and radar only answer on the ADAS CAN at the harness, not through the OBD port
+    Request(
+      [StdQueries.TESTER_PRESENT_REQUEST, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_REQUEST],
+      [StdQueries.TESTER_PRESENT_RESPONSE, StdQueries.MANUFACTURER_ECU_HARDWARE_NUMBER_RESPONSE],
+      bus=0,
+    ),
   ],
 )
 
