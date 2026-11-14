@@ -66,6 +66,11 @@ class CarState(CarStateBase):
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
     ret.steerFaultTemporary = cp_cam.vl["FVCM_HSC2_FrP02"]["LDWSysFltStsHSC2"] != 0
+    if non_ev:
+      # EPS LKA control status: 0 idle, 1 following the torque request, 4 locked out after a hard driver
+      # override (clears once a request is sent again, so it must not stop openpilot from requesting),
+      # 3 latched fault: seen after requesting over 3 Nm, the EPS ignored all requests until the end of the drive
+      ret.steerFaultPermanent = cp.vl["EPS_HSC2_FrP03"]["ChLKACtrlStsHSC2"] == 3
 
     # Cruise state
     acc_state = cp.vl["RADAR_HSC2_FrP00"]["ACCSysSts_RadarHSC2"]
