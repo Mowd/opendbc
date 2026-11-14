@@ -1,12 +1,24 @@
 import copy
 
 from opendbc.can.parser import CANParser
-from opendbc.car import Bus, structs
+from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.mg.values import DBC, NON_EV_CAR
 from opendbc.car.common.conversions import Conversions as CV
 
+ButtonType = structs.CarState.ButtonEvent.Type
 GearShifter = structs.CarState.GearShifter
+
+# MG HS cruise switches in GW_HSC2_FrP04, one bit each
+CRUISE_BUTTONS = {
+  "CCSwStsSetSwA_h2HSC2": ButtonType.setCruise,
+  "CCSwStsRsmSwA_h2HSC2": ButtonType.resumeCruise,
+  "CCSwStsCanclSwA_h2HSC2": ButtonType.cancel,
+  "CCSwStsSpdIncSwA_h2HSC2": ButtonType.accelCruise,
+  "CCSwStsSpdDecSwA_h2HSC2": ButtonType.decelCruise,
+  "CCSwStsDistIncSwA_h2HSC2": ButtonType.gapAdjustCruise,
+  "CCSwStsDistDecSwA_h2HSC2": ButtonType.gapAdjustCruise,
+}
 
 GEAR_MAP = {
   0: GearShifter.unknown,
@@ -29,6 +41,7 @@ class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
     self.cruise_buttons_msg = None
+    self.cruise_buttons = dict.fromkeys(CRUISE_BUTTONS, 0)
     self.acc_go_notifier = False
 
   def update(self, can_parsers) -> structs.CarState:
@@ -80,11 +93,17 @@ class CarState(CarStateBase):
       # stopping behind a lead goes Active -> 5 (Standstill Active) -> 6 (Standstill Wait, ~3 s later);
       # stay engaged there so openpilot can resume (keep in sync with safety)
       ret.cruiseState.enabled = acc_state in (2, 3, 5, 6)  # Active, Override, Standstill Active/Wait
-      ret.cruiseState.available = True
+      ret.cruiseState.available = acc_state != 0  # Off, otherwise Standby (1) or engaged
       ret.cruiseState.standstill = acc_state == 6  # Standstill Wait: needs RES or gas to go
       # the radar's own "lead has left, press RES to go" prompt
       self.acc_go_notifier = cp.vl["RADAR_HSC2_FrP02"]["ACCGoNotfr_RadarHSC2"] == 1
       self.cruise_buttons_msg = copy.copy(cp.vl["GW_HSC2_FrP04"])
+
+      # CCSwStsOnSwA_h2HSC2 is not a button: it is 1 in every frame seen, so no mainCruise event
+      prev_cruise_buttons = self.cruise_buttons
+      self.cruise_buttons = {sig: int(self.cruise_buttons_msg[sig]) for sig in CRUISE_BUTTONS}
+      ret.buttonEvents = [ev for sig, btn in CRUISE_BUTTONS.items()
+                          for ev in create_button_events(self.cruise_buttons[sig], prev_cruise_buttons[sig], {1: btn})]
       ret.accFaulted = cp_cam.vl["FVCM_HSC2_FrP02"]["TJAICASysFltStsHSC2"] != 0
     else:
       ret.cruiseState.enabled = acc_state in (2, 3)  # Active, Override
