@@ -154,11 +154,13 @@ static bool mg_tx_hook(const CANPacket_t *msg) {
     tx = !steer_torque_cmd_checks(desired_torque, steer_req, *limits);
   }
 
-  // Cruise switches (MG HS only): only RES, only while engaged, to leave standstill
+  // Cruise switches (MG HS only): only Cancel at any time, or only RES while engaged to leave standstill
   if (msg->addr == 0x1e1U) {
     // byte 0: SpdDec bit 2, SpdInc bit 3, Set bit 4, Rsm bit 5, Cancel bit 7; byte 2: DistDec bit 2, DistInc bit 3
-    bool only_resume = ((msg->data[0] & 0xBCU) == 0x20U) && ((msg->data[2] & 0x0CU) == 0U);
-    tx = only_resume && safety.controls_allowed;
+    bool no_distance = (msg->data[2] & 0x0CU) == 0U;
+    bool only_cancel = ((msg->data[0] & 0xBCU) == 0x80U) && no_distance;
+    bool only_resume = ((msg->data[0] & 0xBCU) == 0x20U) && no_distance;
+    tx = only_cancel || (only_resume && safety.controls_allowed);
   }
 
   return tx;

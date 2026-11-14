@@ -117,6 +117,7 @@ class TestMGNonEVSafety(TestMGSafety):
   # GW_HSC2_FrP04 frames captured on an MG HS PHEV: On switch held, counter 0
   BUTTONS_IDLE = bytes.fromhex("40c00000000000")
   BUTTONS_RESUME = bytes.fromhex("60a00000000000")
+  BUTTONS_CANCEL = bytes.fromhex("c0400000000000")
 
   def _button_msg(self, dat):
     return libsafety_py.make_CANPacket(0x1e1, 0, dat)
@@ -142,14 +143,28 @@ class TestMGNonEVSafety(TestMGSafety):
       self.assertEqual(controls_allowed, self._tx(self._button_msg(self.BUTTONS_RESUME)))
       self.assertFalse(self._tx(self._button_msg(self.BUTTONS_IDLE)))
 
+  def test_cancel_button(self):
+    # cancel is always allowed, so openpilot can stop the stock ACC after disengaging
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      self.assertTrue(self._tx(self._button_msg(self.BUTTONS_CANCEL)))
+
   def test_other_buttons_blocked(self):
-    self.safety.set_controls_allowed(True)
-    # SpdDec, SpdInc, Set, Cancel (byte 0) and DistDec, DistInc (byte 2), alone and with RES
-    for byte, bit in ((0, 2), (0, 3), (0, 4), (0, 7), (2, 2), (2, 3)):
-      for base in (self.BUTTONS_IDLE, self.BUTTONS_RESUME):
-        dat = bytearray(base)
-        dat[byte] |= 1 << bit
-        self.assertFalse(self._tx(self._button_msg(bytes(dat))), (byte, bit, base.hex()))
+    for controls_allowed in (True, False):
+      self.safety.set_controls_allowed(controls_allowed)
+      # SpdDec, SpdInc, Set, Rsm, Cancel (byte 0) and DistDec, DistInc (byte 2), added to RES or Cancel
+      for byte, bit in ((0, 2), (0, 3), (0, 4), (0, 5), (0, 7), (2, 2), (2, 3)):
+        for base in (self.BUTTONS_RESUME, self.BUTTONS_CANCEL):
+          dat = bytearray(base)
+          if dat[byte] & (1 << bit):
+            continue
+          dat[byte] |= 1 << bit
+          self.assertFalse(self._tx(self._button_msg(bytes(dat))), (byte, bit, base.hex()))
+      # SpdDec, SpdInc, Set alone
+      for bit in (2, 3, 4):
+        dat = bytearray(self.BUTTONS_IDLE)
+        dat[0] |= 1 << bit
+        self.assertFalse(self._tx(self._button_msg(bytes(dat))), bit)
 
   def _user_brake_msg(self, brake):
     values = {"BrkPdlDrvrAppdPrsHSC2": 150 if brake else 0}
