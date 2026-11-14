@@ -10,6 +10,7 @@ class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
     self.packer = CANPacker(dbc_names[Bus.pt])
+    self.params = CarControllerParams(CP)
 
     self.apply_torque_last = 0
     self.last_button_counter = -1
@@ -19,15 +20,15 @@ class CarController(CarControllerBase):
     can_sends = []
 
     # steering command
-    if self.frame % CarControllerParams.STEER_STEP == 0:
+    if self.frame % self.params.STEER_STEP == 0:
       if CC.latActive:
-        new_torque = int(round(actuators.torque * CarControllerParams.STEER_MAX))
-        apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, CarControllerParams)
+        new_torque = int(round(actuators.torque * self.params.STEER_MAX))
+        apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.params)
       else:
         apply_torque = 0
 
       self.apply_torque_last = apply_torque
-      can_sends.append(create_lka_steering(self.packer, (self.frame // CarControllerParams.STEER_STEP) % 16, apply_torque, CC.latActive))
+      can_sends.append(create_lka_steering(self.packer, (self.frame // self.params.STEER_STEP) % 16, apply_torque, CC.latActive))
 
     # MG HS stop and go: in Standstill Wait the ACC only moves off after RES. When openpilot's
     # planner (CC.cruiseControl.resume) and the radar's go prompt agree the lead has left,
@@ -40,7 +41,7 @@ class CarController(CarControllerBase):
           can_sends.append(create_cruise_buttons(self.packer, CS.cruise_buttons_msg, (counter + 1) % 4))
 
     new_actuators = actuators.as_builder()
-    new_actuators.torque = self.apply_torque_last / CarControllerParams.STEER_MAX
+    new_actuators.torque = self.apply_torque_last / self.params.STEER_MAX
     new_actuators.torqueOutputCan = self.apply_torque_last
 
     self.frame += 1
