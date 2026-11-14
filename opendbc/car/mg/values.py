@@ -50,7 +50,10 @@ class CarControllerParams:
   STEER_DRIVER_FACTOR = 100
 
   def __init__(self, CP):
-    pass
+    if CP.carFingerprint in NON_EV_CAR:
+      # MG HS: ramp torque a bit faster, still within the ISO 11270 jerk limits (keep in sync with safety)
+      self.STEER_DELTA_UP = 7     # Max torque reached in ~0.86s
+      self.STEER_DELTA_DOWN = 11  # Min torque reached in ~0.55s
 
 
 class MgSafetyFlags(IntFlag):

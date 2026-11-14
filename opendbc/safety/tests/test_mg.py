@@ -111,6 +111,9 @@ class TestMGNonEVSafety(TestMGSafety):
 
   TX_MSGS = [[0x1fd, 0], [0x1e1, 0]]
 
+  MAX_RATE_UP = 7
+  MAX_RATE_DOWN = 11
+
   # GW_HSC2_FrP04 frames captured on an MG HS PHEV: On switch held, counter 0
   BUTTONS_IDLE = bytes.fromhex("40c00000000000")
   BUTTONS_RESUME = bytes.fromhex("60a00000000000")

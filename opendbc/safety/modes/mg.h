@@ -133,13 +133,25 @@ static bool mg_tx_hook(const CANPacket_t *msg) {
     .type = TorqueDriverLimited,
   };
 
+  // MG HS: faster torque ramp (keep in sync with CarControllerParams)
+  const TorqueSteeringLimits MG_NON_EV_STEERING_LIMITS = {
+    .max_torque = 300,
+    .max_rate_up = 7,
+    .max_rate_down = 11,
+    .max_rt_delta = 125,
+    .driver_torque_multiplier = 2,
+    .driver_torque_allowance = 100,
+    .type = TorqueDriverLimited,
+  };
+
   bool tx = true;
 
   // Steering control
   if (msg->addr == 0x1fdU) {
     int desired_torque = (((msg->data[0] & 0x7U) << 8) | msg->data[1]) - 1024U;
     bool steer_req = GET_BIT(msg, 35U);
-    tx = !steer_torque_cmd_checks(desired_torque, steer_req, MG_STEERING_LIMITS);
+    const TorqueSteeringLimits *limits = safety_setup.mg_non_ev ? &MG_NON_EV_STEERING_LIMITS : &MG_STEERING_LIMITS;
+    tx = !steer_torque_cmd_checks(desired_torque, steer_req, *limits);
   }
 
   // Cruise switches (MG HS only): only RES, only while engaged, to leave standstill
