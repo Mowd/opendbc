@@ -117,15 +117,11 @@ class CarState(CarStateBase):
     else:
       ret.gearShifter = GEAR_MAP.get(int(cp.vl["GW_HSC2_ECM_FrP04"]["TrEstdGearHSC2"]), GearShifter.unknown)
 
-    # Doors
-    if non_ev:
-      ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenSts_H1_Safety"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"]])
-    else:
-      ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
+    # Doors: on the MG HS each door was opened and closed while parked, and each of these signals followed it
+    ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
+                        cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
+                        cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
+                        cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
 
     # Blinkers
     left_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1

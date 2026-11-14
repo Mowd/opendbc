@@ -242,7 +242,6 @@ BO_ 1130 GW_HSC2_BCM_FrP04: 8 GW
  SG_ RRDoorOpenStsHSC2 : 5|2@0+ (1,0) [0|3] ""  FVCM
  SG_ RrFogLghtOnHSC2 : 8|1@0+ (1,0) [0|1] ""  FVCM
  SG_ VehSideLghtStsHSC2 : 57|2@0+ (1,0) [0|3] ""  FVCM
- SG_ DrvrDoorOpenSts_H1_Safety : 47|2@0+ (1,0) [0|3] ""  XXX
 
 VAL_ 355 AirbagDplInvsnHSC2 1 "No Airbag Deployed" 0 "Airbag Deployed";
 VAL_ 355 AirbagDplHSC2 1 "True" 0 "False";
@@ -311,7 +310,6 @@ VAL_ 593 ChAEBPrflReqRespHSC2 7 "reserve" 6 "reserve" 4 "pre-condition not satis
 VAL_ 593 VehSdslStsHSC2 3 "reserved" 2 "invalid (short unavailability, max 3s)" 1 "standstill" 0 "not standstill" ;
 VAL_ 851 VehSpdAvgDrvnVHSC2 1 "Invalid" 0 "Valid" ;
 VAL_ 851 VehSpdAvgNonDrvnVHSC2 1 "Invalid" 0 "Valid" ;
-CM_ SG_ 1130 DrvrDoorOpenSts_H1_Safety "Driver door on MG HS; overlaps BntOpenStsHSC2";
 VAL_ 1130 BntOpenStsHSC2 3 "Reserved" 2 "Bonnet Switch Disconnect" 1 "Bonnet Open" 0 "Bonnet Closed" ;
 VAL_ 1130 DipdBeamLghtOnHSC2 1 "True" 0 "False" ;
 VAL_ 1130 DircnIndLampSwStsHSC2 3 "reserve" 2 "Right on" 1 "Left on" 0 "off" ;
