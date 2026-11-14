@@ -99,7 +99,8 @@ class CarState(CarStateBase):
       self.acc_go_notifier = cp.vl["RADAR_HSC2_FrP02"]["ACCGoNotfr_RadarHSC2"] == 1
       self.cruise_buttons_msg = copy.copy(cp.vl["GW_HSC2_FrP04"])
 
-      # CCSwStsOnSwA_h2HSC2 is not a button: it is 1 in every frame seen, so no mainCruise event
+      # CCSwStsOnSwA_h2HSC2 is not a button but the ACC main state: it went to 0 together with ACC state 0 (Off)
+      # when ACC was switched off with Cancel, and back to 1 with RES, so available above already follows it
       prev_cruise_buttons = self.cruise_buttons
       self.cruise_buttons = {sig: int(self.cruise_buttons_msg[sig]) for sig in CRUISE_BUTTONS}
       ret.buttonEvents = [ev for sig, btn in CRUISE_BUTTONS.items()
@@ -117,15 +118,11 @@ class CarState(CarStateBase):
     else:
       ret.gearShifter = GEAR_MAP.get(int(cp.vl["GW_HSC2_ECM_FrP04"]["TrEstdGearHSC2"]), GearShifter.unknown)
 
-    # Doors
-    if non_ev:
-      ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenSts_H1_Safety"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"]])
-    else:
-      ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
-                          cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
+    # Doors: on the MG HS each door was opened and closed while parked, and each of these signals followed it
+    ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
+                        cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
+                        cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
+                        cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
 
     # Blinkers
     left_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1
@@ -149,7 +146,9 @@ class CarState(CarStateBase):
       ret.rightBlindspot = cp.vl["RDA_HSC1_P02"]["RBSDAndLCAWrnng_HS"] > 0
 
       # Stock FCW / AEB. Seen while driving: AEB, pedestrian AEB and FCW display on (2), FCW sensitivity level 2,
-      # AEBMsgReq 1 ("unable to active AEB") for <1 s at ~48 km/h; 1/4/5 are only status messages, not AEB braking
+      # AEBMsgReq 1 ("unable to active AEB") for <1 s at ~48 km/h; 1/4/5 are only status messages, not AEB braking.
+      # In the car settings menu, FCW sensitivity 1/2/3 shows in FCWSnstvtLvl and turning AEB off sets
+      # AEBPedtrnDspCmd to 1; neither changes the warning or braking signals below
       ret.stockFcw = cp.vl["RADAR_HSC2_FrP02"]["FCWrnngSts_RadarHSC2"] != 0  # warning level 1-3
       ret.stockAeb = bool(cp.vl["RADAR_HSC2_FrP02"]["AEBMsgReqHSC2"] == 2 or  # radar: AEB active
                           cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1)  # ABS: AEB decel request honored
