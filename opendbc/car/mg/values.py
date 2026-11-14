@@ -23,7 +23,10 @@ class CAR(Platforms):
   # its own DBC name means the MG 5 EV CAN checksums are not validated
   MG_HS = MgPlatformConfig(
     [MgCarDocs("MG HS PHEV 2023")],
-    CarSpecs(wheelbase=2.72, steerRatio=15.8),
+    # wheelbase: 2720 mm (MG Taiwan / UK spec sheets)
+    # steerRatio: not published; learned 16.6-17.0 by paramsd over 30 segments, 16.8 from yaw rate below 5 m/s,
+    # full lock is ~480 deg each side
+    CarSpecs(wheelbase=2.72, steerRatio=16.8),
     {Bus.pt: 'mg_hs_generated'},
   )
 
