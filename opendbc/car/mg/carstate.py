@@ -144,6 +144,12 @@ class CarState(CarStateBase):
       ret.leftBlindspot = cp.vl["RDA_HSC1_P02"]["LBSDAndLCAWrnng_HS"] > 0
       ret.rightBlindspot = cp.vl["RDA_HSC1_P02"]["RBSDAndLCAWrnng_HS"] > 0
 
+      # Stock FCW / AEB. Seen while driving: AEB, pedestrian AEB and FCW display on (2), FCW sensitivity level 2,
+      # AEBMsgReq 1 ("unable to active AEB") for <1 s at ~48 km/h; 1/4/5 are only status messages, not AEB braking
+      ret.stockFcw = cp.vl["RADAR_HSC2_FrP02"]["FCWrnngSts_RadarHSC2"] != 0  # warning level 1-3
+      ret.stockAeb = bool(cp.vl["RADAR_HSC2_FrP02"]["AEBMsgReqHSC2"] == 2 or  # radar: AEB active
+                          cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1)  # ABS: AEB decel request honored
+
     return ret
 
   @staticmethod
