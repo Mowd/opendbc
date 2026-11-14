@@ -29,10 +29,16 @@ class CAR(Platforms):
     CarSpecs(wheelbase=2.72, steerRatio=16.8),
     {Bus.pt: 'mg_hs_generated'},
   )
+  # MG ZS 2025 (ICE): same ADAS and CAN layout as the MG HS, parameters from the mg-zs branch
+  MG_ZS = MgPlatformConfig(
+    [MgCarDocs("MG ZS 2025")],
+    CarSpecs(wheelbase=2.58, steerRatio=15.8),
+    {Bus.pt: 'mg_hs_generated'},
+  )
 
 
 FW_QUERY_CONFIG = FwQueryConfig(
-  fw_version_regex=br"\x10[\x00-\xff]{3}\x01",
+  fw_version_regex=br"[\x10\x11][\x00-\xff]{3}\x01",
   requests=[
     # MG 5 EV: through the OBD port
     Request(
@@ -63,12 +69,15 @@ class CarControllerParams:
       # MG HS: ramp torque a bit faster, still within the ISO 11270 jerk limits (keep in sync with safety)
       self.STEER_DELTA_UP = 7     # Max torque reached in ~0.86s
       self.STEER_DELTA_DOWN = 11  # Min torque reached in ~0.55s
+    if CP.carFingerprint == CAR.MG_ZS:
+      # MG ZS: the mg-zs branch used 8/8; 8 up is over the ISO 11270 jerk limit (3.3 > 3.0 m/s^3), so keep 7 up
+      self.STEER_DELTA_DOWN = 8   # Min torque reached in 0.75s
 
 
 class MgSafetyFlags(IntFlag):
   NON_EV = 1  # ICE/PHEV: gas from ECM (0xc9), brake from driver brake pressure (0x214)
 
 
-NON_EV_CAR = {CAR.MG_HS}
+NON_EV_CAR = {CAR.MG_HS, CAR.MG_ZS}
 
 DBC = CAR.create_dbc_map()

@@ -29,4 +29,16 @@ FW_VERSIONS = {
       b'\x10\x92\x33\x80\x01',
     ],
   },
+  # from the mg-zs branch
+  CAR.MG_ZS: {
+    (Ecu.eps, 0x721, None): [
+      b'\x11\x06c\x94\x01',
+    ],
+    (Ecu.fwdCamera, 0x733, None): [
+      b'\x10\x89wQ\x01',
+    ],
+    (Ecu.fwdRadar, 0x732, None): [
+      b'\x11RuP\x01',
+    ],
+  },
 }

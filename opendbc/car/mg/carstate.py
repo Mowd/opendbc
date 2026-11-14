@@ -3,7 +3,7 @@ import copy
 from opendbc.can.parser import CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mg.values import DBC, NON_EV_CAR
+from opendbc.car.mg.values import CAR, DBC, NON_EV_CAR
 from opendbc.car.common.conversions import Conversions as CV
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -79,7 +79,7 @@ class CarState(CarStateBase):
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > 1.0, 5)
 
     ret.steerFaultTemporary = cp_cam.vl["FVCM_HSC2_FrP02"]["LDWSysFltStsHSC2"] != 0
-    if non_ev:
+    if self.CP.carFingerprint == CAR.MG_HS:
       # EPS LKA control status: 0 idle, 1 following the torque request, 4 locked out after a hard driver
       # override (clears once a request is sent again, so it must not stop openpilot from requesting),
       # 3 latched fault: seen after requesting over 3 Nm, the EPS ignored all requests until the end of the drive
@@ -130,7 +130,11 @@ class CarState(CarStateBase):
     # Blinkers
     left_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1
     right_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 2
-    if non_ev:
+    if self.CP.carFingerprint == CAR.MG_ZS:
+      # MG ZS: blinker lamp status, as in the mg-zs branch
+      ret.leftBlinker = cp.vl["GW_HSC2_BCM_FrP04"]["BlinkerLeft"] == 1
+      ret.rightBlinker = cp.vl["GW_HSC2_BCM_FrP04"]["BlinkerRight"] == 1
+    elif non_ev:
       # a short "comfort" tap only shows on the stalk switch for a moment: hold it 1 s (100 frames)
       ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(100, left_stalk, right_stalk)
     else:
@@ -143,6 +147,11 @@ class CarState(CarStateBase):
       # Blindspot (RDA_HSC1_P02, only in the mg_hs DBC)
       ret.leftBlindspot = cp.vl["RDA_HSC1_P02"]["LBSDAndLCAWrnng_HS"] > 0
       ret.rightBlindspot = cp.vl["RDA_HSC1_P02"]["RBSDAndLCAWrnng_HS"] > 0
+
+    if self.CP.carFingerprint == CAR.MG_ZS:
+      # stock AEB / FCW, as in the mg-zs branch (not checked on the MG HS yet)
+      ret.stockAeb = cp.vl["RADAR_HSC2_FrP02"]["AEBMsgReqHSC2"] == 2  # Active
+      ret.stockFcw = cp.vl["RADAR_HSC2_FrP02"]["FCWrnngSts_RadarHSC2"] == 1  # level 1
 
     return ret
 
