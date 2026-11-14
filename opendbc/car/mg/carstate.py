@@ -97,12 +97,16 @@ class CarState(CarStateBase):
       ret.cruiseState.standstill = acc_state == 6  # Standstill Wait: needs RES or gas to go
       # the radar's own "lead has left, press RES to go" prompt
       self.acc_go_notifier = cp.vl["RADAR_HSC2_FrP02"]["ACCGoNotfr_RadarHSC2"] == 1
-      self.cruise_buttons_msg = copy.copy(cp.vl["GW_HSC2_FrP04"])
+      # MG ZS: the cruise switch frame is optional (see get_can_parsers); only use it once it has been received,
+      # so the controller never sends RES/cancel built from an empty frame
+      cruise_buttons_msg = cp.vl["GW_HSC2_FrP04"]  # registers the message before ts_nanos is read
+      buttons_seen = cp.ts_nanos["GW_HSC2_FrP04"]["CCSwStsAlvRC_h2HSC2"] > 0
+      self.cruise_buttons_msg = copy.copy(cruise_buttons_msg) if buttons_seen else None
 
       # CCSwStsOnSwA_h2HSC2 is not a button but the ACC main state: it went to 0 together with ACC state 0 (Off)
       # when ACC was switched off with Cancel, and back to 1 with RES, so available above already follows it
       prev_cruise_buttons = self.cruise_buttons
-      self.cruise_buttons = {sig: int(self.cruise_buttons_msg[sig]) for sig in CRUISE_BUTTONS}
+      self.cruise_buttons = {sig: int(cruise_buttons_msg[sig]) for sig in CRUISE_BUTTONS}
       ret.buttonEvents = [ev for sig, btn in CRUISE_BUTTONS.items()
                           for ev in create_button_events(self.cruise_buttons[sig], prev_cruise_buttons[sig], {1: btn})]
       ret.accFaulted = cp_cam.vl["FVCM_HSC2_FrP02"]["TJAICASysFltStsHSC2"] != 0
@@ -157,7 +161,10 @@ class CarState(CarStateBase):
 
   @staticmethod
   def get_can_parsers(CP):
+    # MG ZS: the cruise switch frame (0x1E1) was not used by the mg-zs branch and may not be on this bus,
+    # so its absence must not make CAN invalid
+    pt_messages = [("GW_HSC2_FrP04", float('nan'))] if CP.carFingerprint == CAR.MG_ZS else []
     return {
-      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
+      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, 0),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
     }
