@@ -14,13 +14,15 @@ def calc_checksum(values):
   return checksum
 
 
-def create_lka_steering(packer, counter, apply_torque, active):
+def create_lka_steering(packer, counter, apply_torque, active, lka_status=0):
+  # lka_status (LKASysStsHSC2): 0 Off, 1 Standby, 2 Active, 3 Override. Not in the checksum. The gateway shows it
+  # as the dashboard LKA lamp: sending 0 turned the lamp off while the stock camera sends 1 (Standby)
   values = {
     "LKAReqToqHSC2": apply_torque,
     "LKAReqToqVHSC2": 0,
     "LKAAlvRCHSC2": counter,
     "LDWLKAVbnLvlReqHSC2": 0,  # TODO: vibration level?
-    "LKASysStsHSC2": 0,
+    "LKASysStsHSC2": lka_status,
     "LKAReqToqStsHSC2": active,
     "LKASysFltStsHSC2": 0,
     "LKADrvrTkovReqHSC2": 0,

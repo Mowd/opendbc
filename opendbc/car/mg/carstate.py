@@ -43,6 +43,7 @@ class CarState(CarStateBase):
     self.cruise_buttons_msg = None
     self.cruise_buttons = dict.fromkeys(CRUISE_BUTTONS, 0)
     self.acc_go_notifier = False
+    self.lka_sys_status = 0
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -106,6 +107,8 @@ class CarState(CarStateBase):
       ret.buttonEvents = [ev for sig, btn in CRUISE_BUTTONS.items()
                           for ev in create_button_events(self.cruise_buttons[sig], prev_cruise_buttons[sig], {1: btn})]
       ret.accFaulted = cp_cam.vl["FVCM_HSC2_FrP02"]["TJAICASysFltStsHSC2"] != 0
+      # the stock camera's own LKA status, from its steering frame that openpilot blocks (0 until received)
+      self.lka_sys_status = int(cp_cam.vl["FVCM_HSC2_FrP03"]["LKASysStsHSC2"])
     else:
       ret.cruiseState.enabled = acc_state in (2, 3)  # Active, Override
       ret.cruiseState.available = acc_state != 0
@@ -153,7 +156,9 @@ class CarState(CarStateBase):
 
   @staticmethod
   def get_can_parsers(CP):
+    # the stock camera's steering frame is only used for the dashboard LKA lamp, so it is optional
+    cam_messages = [("FVCM_HSC2_FrP03", float('nan'))] if CP.carFingerprint in NON_EV_CAR else []
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
-      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
+      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], cam_messages, 2),
     }
