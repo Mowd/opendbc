@@ -390,6 +390,9 @@ struct CarControl {
     cancel @0: Bool;
     resume @1: Bool;
     override @4: Bool;
+    # fork (MG HS/ZS curve speed): highest speed the stock ACC should be set to (m/s), 0 = no target.
+    # The car port reaches it with the cruise +/- switches and goes back to the driver's set speed after
+    speedTarget @5: Float32;
 
     deprecated :group {
       speedOverride @2: Float32;

@@ -143,6 +143,20 @@ class TestMGNonEVSafety(TestMGSafety):
       self.assertEqual(controls_allowed, self._tx(self._button_msg(self.BUTTONS_RESUME)))
       self.assertFalse(self._tx(self._button_msg(self.BUTTONS_IDLE)))
 
+  def test_speed_buttons(self):
+    # fork: SpdDec / SpdInc alone while engaged (curve speed), never when not engaged
+    for bit in (2, 3):
+      dat = bytearray(self.BUTTONS_IDLE)
+      dat[0] |= 1 << bit
+      for controls_allowed in (True, False):
+        self.safety.set_controls_allowed(controls_allowed)
+        self.assertEqual(controls_allowed, self._tx(self._button_msg(bytes(dat))), bit)
+    # both at once is not a real press
+    dat = bytearray(self.BUTTONS_IDLE)
+    dat[0] |= 0x0C
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self._tx(self._button_msg(bytes(dat))))
+
   def test_cancel_button(self):
     # cancel is always allowed, so openpilot can stop the stock ACC after disengaging
     for controls_allowed in (True, False):
@@ -160,10 +174,16 @@ class TestMGNonEVSafety(TestMGSafety):
             continue
           dat[byte] |= 1 << bit
           self.assertFalse(self._tx(self._button_msg(bytes(dat))), (byte, bit, base.hex()))
-      # SpdDec, SpdInc, Set alone
-      for bit in (2, 3, 4):
+      # Set alone, distance switches alone
+      for byte, bit in ((0, 4), (2, 2), (2, 3)):
+        dat = bytearray(self.BUTTONS_IDLE)
+        dat[byte] |= 1 << bit
+        self.assertFalse(self._tx(self._button_msg(bytes(dat))), (byte, bit))
+      # SpdDec / SpdInc with a distance switch
+      for bit in (2, 3):
         dat = bytearray(self.BUTTONS_IDLE)
         dat[0] |= 1 << bit
+        dat[2] |= 1 << 2
         self.assertFalse(self._tx(self._button_msg(bytes(dat))), bit)
 
   def _user_brake_msg(self, brake):
