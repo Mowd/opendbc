@@ -8,6 +8,8 @@ the driver's own set speed afterwards. The radar keeps doing distance keeping an
 Stock switch behavior (MG HS and ZS rlogs): a tap acts ~20-70 ms after it is released and moves the set speed
 to the next multiple of 5 km/h (63 -> 60, 33 -> 35); holding a switch steps 1 km/h every 0.2 s after ~0.6 s,
 so only taps are used. The switches do nothing in Standby, and the lowest set speed is 30 km/h.
+On an MG ZS on-ramp the ACC also ignored three taps in a row with nothing else different (50 -> 45 km/h at 51 km/h,
+Active), right after 16 accepted ones, so ignored taps only pause it for a while.
 """
 import math
 
@@ -21,8 +23,13 @@ MIN_SET_SPEED_KPH = 30
 
 TAP_FRAMES = 4  # gateway cruise switch frames (~30 ms each) held per tap, like RES
 TAP_TIMEOUT_FRAMES = 17  # ~0.5 s for the set speed to change before the next tap
-MAX_IGNORED_TAPS = 3  # taps in a row that didn't change the set speed before giving up for the drive
-DRIVER_HOLDOFF_FRAMES = 200  # 2 s (100 Hz control frames) after the driver touches a cruise switch
+MAX_IGNORED_TAPS = 3  # taps in a row that didn't change the set speed before pausing
+# 100 Hz control frames:
+DRIVER_HOLDOFF_FRAMES = 200  # 2 s after the driver touches a cruise switch
+IGNORED_PAUSE_FRAMES = 1000  # 10 s pause after MAX_IGNORED_TAPS ignored taps
+# a noisy target near a 5 km/h step tapped -/+/- within 0.7 s through S-curves: wait before tapping back
+UP_AFTER_DOWN_FRAMES = 300  # 3 s
+DOWN_AFTER_UP_FRAMES = 100  # 1 s, lowering for a curve matters more
 
 SPEED_DOWN = "CCSwStsSpdDecSwA_h2HSC2"
 SPEED_UP = "CCSwStsSpdIncSwA_h2HSC2"
@@ -44,12 +51,29 @@ class SpeedButtons:
     self.tap_frames = 0
     self.tap_start_kph = 0
     self.ignored_taps = 0
-    self.disabled = False  # an unexpected reaction to a tap: stop tapping for the rest of the drive
+    self.paused_until = 0  # control frame
+    self.disabled = False  # a wrong-way or double step after a tap: stop tapping for the rest of the drive
+    self.frame = 0
+    self.last_tap_button = None
+    self.last_tap_frame = -UP_AFTER_DOWN_FRAMES
 
   def update(self, frame: int, enabled: bool, acc_state: int, set_kph: float, target_kph: float, driver_pressing: bool,
              v_ego_kph: float):
     """Every control frame (100 Hz): decide which switch is wanted, if any."""
-    set_kph = round(set_kph)
+    self._decide(frame, enabled, acc_state, round(set_kph), target_kph, driver_pressing, v_ego_kph)
+    if self.want is None:
+      return
+    since_tap = frame - self.last_tap_frame
+    if frame < self.paused_until:
+      self.want = None
+    elif self.want == SPEED_UP and self.last_tap_button == SPEED_DOWN and since_tap < UP_AFTER_DOWN_FRAMES:
+      self.want = None
+    elif self.want == SPEED_DOWN and self.last_tap_button == SPEED_UP and since_tap < DOWN_AFTER_UP_FRAMES:
+      self.want = None
+
+  def _decide(self, frame: int, enabled: bool, acc_state: int, set_kph: int, target_kph: float, driver_pressing: bool,
+              v_ego_kph: float):
+    self.frame = frame
     self.want = None
     if driver_pressing:
       self.last_driver_frame = frame
@@ -116,6 +140,8 @@ class SpeedButtons:
       self.tap_button = self.want
       self.tap_frames = 1
       self.tap_start_kph = set_kph
+      self.last_tap_button = self.want
+      self.last_tap_frame = self.frame
       return self.tap_button
     return None
 
@@ -124,8 +150,9 @@ class SpeedButtons:
     if step == 0:
       self.ignored_taps += 1
       if self.ignored_taps >= MAX_IGNORED_TAPS:
-        self.disabled = True
-        carlog.error(f"MG speed buttons: {self.ignored_taps} taps ignored by the ACC, disabled for this drive")
+        self.paused_until = self.frame + IGNORED_PAUSE_FRAMES
+        carlog.warning(f"MG speed buttons: {self.ignored_taps} taps ignored by the ACC, pausing {IGNORED_PAUSE_FRAMES // 100} s")
+        self.ignored_taps = 0
     elif step * expected_sign < 0 or abs(step) > STEP_KPH:
       self.disabled = True
       carlog.error(f"MG speed buttons: unexpected set speed change {step} km/h after {self.tap_button}, disabled for this drive")

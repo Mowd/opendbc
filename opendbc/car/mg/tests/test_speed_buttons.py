@@ -1,7 +1,8 @@
 import math
 import unittest
 
-from opendbc.car.mg.speed_buttons import SpeedButtons, SPEED_DOWN, DRIVER_HOLDOFF_FRAMES, MIN_SET_SPEED_KPH
+from opendbc.car.mg.speed_buttons import SpeedButtons, SPEED_DOWN, SPEED_UP, DRIVER_HOLDOFF_FRAMES, IGNORED_PAUSE_FRAMES, \
+                                         MIN_SET_SPEED_KPH, UP_AFTER_DOWN_FRAMES
 
 ACTIVE, STANDBY, OVERRIDE = 2, 1, 3
 GATEWAY_EVERY = 3  # a gateway cruise switch frame every ~30 ms, control runs at 100 Hz
@@ -97,10 +98,31 @@ class TestSpeedButtons(unittest.TestCase):
     self.assertTrue(sb.disabled)
     self.assertEqual(acc.set_kph, 50)  # one double step, then nothing more
 
-  def test_disabled_when_ignored(self):
+  def test_paused_when_ignored(self):
+    # the ACC ignores taps for a while: pause, don't give up for the drive
     sb, acc = SpeedButtons(), FakeAcc(60, ignore=True)
-    self.run_drive(sb, acc, [(1000, 40)])
-    self.assertTrue(sb.disabled)
+    self.run_drive(sb, acc, [(400, 40)])
+    self.assertFalse(sb.disabled)
+    self.assertGreater(sb.paused_until, 0)
+    # it takes taps again: after the pause, the curve is followed
+    acc.ignore = False
+    self.assertEqual(self.run_drive(sb, acc, [(IGNORED_PAUSE_FRAMES + 400, 40)]), [40])
+
+  def test_no_quick_reversal(self):
+    # a target flickering across a 5 km/h step: one tap down, no tap back up right after
+    sb, acc = SpeedButtons(), FakeAcc(60)
+    ups = []
+    frame = 0
+    for i in range(UP_AFTER_DOWN_FRAMES - 50):
+      target = 54 if i < 30 or (i // 20) % 2 else 58  # 54 -> 50, 58 -> 55
+      sb.update(frame, True, ACTIVE, acc.set_kph, target, False, 100)
+      if frame % GATEWAY_EVERY == 0:
+        b = sb.button(acc.set_kph)
+        ups.append(b == SPEED_UP)
+        acc.frame(b)
+      frame += 1
+    self.assertEqual(acc.set_kph, 50)
+    self.assertFalse(any(ups))
 
   def test_disengaged_resets(self):
     sb, acc = SpeedButtons(), FakeAcc(60)
