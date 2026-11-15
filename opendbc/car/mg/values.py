@@ -33,7 +33,7 @@ class CAR(Platforms):
   MG_ZS = MgPlatformConfig(
     [MgCarDocs("MG ZS 2025")],
     CarSpecs(wheelbase=2.58, steerRatio=15.8),
-    {Bus.pt: 'mg_hs_generated'},
+    {Bus.pt: 'mg_zs_generated'},
   )
 
 
@@ -76,6 +76,7 @@ class CarControllerParams:
 
 class MgSafetyFlags(IntFlag):
   NON_EV = 1  # ICE/PHEV: gas from ECM (0xc9), brake from driver brake pressure (0x214)
+  ZS = 2  # MG ZS: radar (0x242) and ECM (0xc9) frames without the MG HS counters and checksums
 
 
 NON_EV_CAR = {CAR.MG_HS, CAR.MG_ZS}

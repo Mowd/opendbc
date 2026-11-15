@@ -180,8 +180,10 @@ static bool mg_tx_hook(const CANPacket_t *msg) {
 
 static safety_config mg_init(uint16_t param) {
   const uint16_t MG_PARAM_NON_EV = 1;
+  const uint16_t MG_PARAM_ZS = 2;
   // ICE/PHEV (e.g. MG HS PHEV): gas and brake come from different messages than the EVs
   safety_setup.mg_non_ev = GET_FLAG(param, MG_PARAM_NON_EV);
+  const bool mg_zs = GET_FLAG(param, MG_PARAM_ZS);
 
   static const CanMsg MG_TX_MSGS[] = {{0x1fd, 0, 8, .check_relay = true}};
   static const CanMsg MG_NON_EV_TX_MSGS[] = {
@@ -208,8 +210,21 @@ static safety_config mg_init(uint16_t param) {
     {.msg = {{0x214, 0, 6, .frequency = 50U,  .ignore_checksum = true, .max_counter = 3U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP09 (brake pressure)
   };
 
+  // MG ZS (owner's drives): speed, EPS and brake pressure like the MG HS, but its radar and ECM gas frames
+  // have no matching counter or checksum
+  static const RxCheck mg_zs_rx_checks[] = {
+    {.msg = {{0x23c, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP19 (speed)
+    {.msg = {{0xc9,  0, 8, .frequency = 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // Tester_HSC2_ECM_FrP00 (gas pedal)
+    {.msg = {{0x1ec, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPS_HSC2_FrP03 (driver torque)
+    {.msg = {{0x242, 0, 8, .frequency = 50U,  .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // RADAR_HSC2_FrP00 (cruise state)
+    {.msg = {{0x214, 0, 6, .frequency = 50U,  .ignore_checksum = true, .max_counter = 3U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP09 (brake pressure)
+  };
+
   safety_config ret;
-  if (safety_setup.mg_non_ev) {
+  if (safety_setup.mg_non_ev && mg_zs) {
+    SET_RX_CHECKS(mg_zs_rx_checks, ret);
+    SET_TX_MSGS(MG_NON_EV_TX_MSGS, ret);
+  } else if (safety_setup.mg_non_ev) {
     SET_RX_CHECKS(mg_non_ev_rx_checks, ret);
     SET_TX_MSGS(MG_NON_EV_TX_MSGS, ret);
   } else {

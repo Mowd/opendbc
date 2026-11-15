@@ -1,4 +1,4 @@
-from opendbc.can.dbc import DBC
+from opendbc.can.packer import CANPacker
 from opendbc.car import Bus
 from opendbc.car.mg.interface import CarInterface
 from opendbc.car.mg.values import CAR, DBC as MG_DBC
@@ -18,11 +18,12 @@ class TestMgZs:
   def test_can_valid_with_mg_zs_messages(self):
     CP = CarInterface.get_non_essential_params(CAR.MG_ZS)
     CI = CarInterface(CP)
-    dbc = DBC(MG_DBC[CAR.MG_ZS][Bus.pt])
-    frames = [(dbc.name_to_msg[name].address, bytes(8), bus) for bus, names in MG_ZS_MESSAGES.items() for name in names]
+    # the packer fills in the counters and checksums the MG ZS DBC checks
+    packer = CANPacker(MG_DBC[CAR.MG_ZS][Bus.pt])
 
     valid = []
     for i in range(300):  # 3 s at 100 Hz
+      frames = [packer.make_can_msg(name, bus, {}) for bus, names in MG_ZS_MESSAGES.items() for name in names]
       valid.append(CI.update([(i * 10_000_000, frames)]).canValid)
     assert all(valid[10:]), "CAN not valid with only the mg-zs messages"
 

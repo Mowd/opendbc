@@ -247,5 +247,42 @@ class TestMGNonEVSafety(TestMGSafety):
       self.assertFalse(self._rx(msg), make_msg.__name__)
 
 
+class TestMGZSSafety(TestMGNonEVSafety):
+  # MG ZS: speed, EPS and brake pressure are checked like the MG HS; radar and ECM gas frames have no matching
+  # counter or checksum
+  SAFETY_PARAM = MgSafetyFlags.NON_EV | MgSafetyFlags.ZS
+
+  def test_rx_counters(self):
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_brake_msg):
+      self._reset_safety_hooks()
+      for _ in range(8):
+        self.assertTrue(self._rx(make_msg(0)))
+      msg = make_msg(0)
+      for _ in range(common.MAX_WRONG_COUNTERS + 1):
+        valid = self._rx(msg)
+      self.assertFalse(valid, make_msg.__name__)
+
+    # radar: the same counter over and over is fine
+    self._reset_safety_hooks()
+    msg = self._pcm_status_msg(0)
+    for _ in range(common.MAX_WRONG_COUNTERS + 2):
+      self.assertTrue(self._rx(msg))
+
+  def test_rx_checksums(self):
+    for make_msg in (self._speed_msg, self._torque_driver_msg):
+      self._reset_safety_hooks()
+      self.assertTrue(self._rx(make_msg(0)), make_msg.__name__)
+      msg = make_msg(0)
+      msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
+      self.assertFalse(self._rx(msg), make_msg.__name__)
+
+    # radar and ECM gas: a byte 7 that matches no checksum is fine
+    for make_msg in (self._pcm_status_msg, self._user_gas_msg):
+      self._reset_safety_hooks()
+      msg = make_msg(0)
+      msg[0].data[7] ^= 0xff
+      self.assertTrue(self._rx(msg), make_msg.__name__)
+
+
 if __name__ == "__main__":
   unittest.main()

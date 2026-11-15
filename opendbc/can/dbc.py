@@ -213,6 +213,16 @@ def mg_hs_setup_signal(sig: Signal, dbc_name: str, line_num: int) -> None:
     sig.type = SignalType.COUNTER
 
 
+# MG ZS (owner's drives): of the MG HS checksums only speed and EPS match; counters as named below
+MG_ZS_COUNTERS = {"VehSpdAvgAlvRCHSC2", "ChLKAAlvRCHSC2", "BrkPdlDrvrAppdPrsAlvRCHSC2", "StrgWhlAngAlvRCHSC2",
+                  "CCSwStsAlvRC_h2HSC2", "LKAAlvRCHSC2"}
+
+
+def mg_zs_setup_signal(sig: Signal, dbc_name: str, line_num: int) -> None:
+  if sig.name in MG_ZS_COUNTERS:
+    sig.type = SignalType.COUNTER
+
+
 @dataclass
 class ChecksumState:
   checksum_type: int
@@ -260,6 +270,9 @@ def get_checksum_state(dbc_name: str) -> ChecksumState | None:
   elif dbc_name == "mg_hs_generated":
     # MG HS: the same checksums as the MG 5 EV where the DBC names one, and counters (checked on MG HS drives)
     return ChecksumState(SignalType.MG_CHECKSUM, mg_checksum, mg_hs_setup_signal, checksum_pattern=r"Chksm|^ChLKARespToqPVHSC2$")
+  elif dbc_name == "mg_zs_generated":
+    return ChecksumState(SignalType.MG_CHECKSUM, mg_checksum, mg_zs_setup_signal,
+                         checksum_pattern=r"^VehSpdAvgChksmHSC2$|^ChLKARespToqPVHSC2$")
   elif dbc_name == "rivian_primary_actuator":
     return ChecksumState(SignalType.RIVIAN_CHECKSUM, rivian_checksum, checksum_pattern=r"_Checksum$")
   return None

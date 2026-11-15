@@ -2,7 +2,7 @@ from opendbc.car import get_safety_config, structs
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.mg.carcontroller import CarController
 from opendbc.car.mg.carstate import CarState
-from opendbc.car.mg.values import NON_EV_CAR, MgSafetyFlags
+from opendbc.car.mg.values import CAR, NON_EV_CAR, MgSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
@@ -17,6 +17,8 @@ class CarInterface(CarInterfaceBase):
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.mg)]
     if candidate in NON_EV_CAR:
       ret.safetyConfigs[0].safetyParam |= MgSafetyFlags.NON_EV.value
+    if candidate == CAR.MG_ZS:
+      ret.safetyConfigs[0].safetyParam |= MgSafetyFlags.ZS.value
 
     ret.steerActuatorDelay = 0.3
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)

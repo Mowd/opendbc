@@ -1,0 +1,8 @@
+CM_ "IMPORT ../../mg.dbc";
+
+CM_ "MG ZS: same messages as the MG HS, under its own name: its radar (0x242), ECM (0xC9) and steering angle (0x1E5) frames don't use the MG HS counters and checksums";
+
+BO_ 516 RDA_HSC1_P02: 8 RDA
+ SG_ LBSDAndLCAWrnng_HS : 7|2@0+ (1,0) [0|3] ""  FVCM
+ SG_ RBSDAndLCAWrnng_HS : 5|2@0+ (1,0) [0|3] ""  FVCM
+ SG_ RDASysSta_HS : 23|5@0+ (1,0) [0|31] ""  FVCM
