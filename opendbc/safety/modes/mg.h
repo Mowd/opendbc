@@ -32,7 +32,13 @@ static uint32_t mg_compute_checksum(const CANPacket_t *msg) {
     0x7FU, 0x62U, 0x45U, 0x58U, 0x0BU, 0x16U, 0x31U, 0x2CU, 0x97U, 0x8AU, 0xADU, 0xB0U, 0xE3U, 0xFEU, 0xD9U, 0xC4U
   };
   uint32_t checksum;
-  if (msg->addr == 0x1ecU) {
+  if (msg->addr == 0xc9U) {
+    // MG HS ECM: byte 7 is the XOR of bytes 0-6
+    checksum = 0U;
+    for (int i = 0; i < 7; i++) {
+      checksum ^= msg->data[i];
+    }
+  } else if (msg->addr == 0x1ecU) {
     uint32_t torque = ((msg->data[0] & 0x7U) << 8) | msg->data[1];
     uint32_t valid = (msg->data[0] >> 3) & 1U;
     uint32_t status = (msg->data[6] >> 4) & 0x7U;
@@ -65,6 +71,9 @@ static uint8_t mg_get_counter(const CANPacket_t *msg) {
   }
   if (msg->addr == 0xAFU) {
     counter = msg->data[5] >> 4U;
+  }
+  if (msg->addr == 0x214U) {
+    counter = (msg->data[0] >> 1) & 0x3U;
   }
   return counter;
 }
@@ -188,14 +197,15 @@ static safety_config mg_init(uint16_t param) {
     {.msg = {{0x1b6, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EHBS_HSC2_FrP00 (brake pedal)
   };
 
-  // MG HS shares its ADAS with the MG ZS, not the MG 5 EV: like the original hs branch,
-  // don't assume the MG 5 EV checksum/counter layout
+  // MG HS: checked on MG HS drives (~180k frames each, checksums all valid, counters only skip while starting up).
+  // Speed, EPS and radar use the MG 5 EV layouts. The ECM gas frame has an XOR checksum, but its counter skips
+  // (over a thousand times in some segments), so it isn't checked; the brake pressure frame has no checksum
   static const RxCheck mg_non_ev_rx_checks[] = {
-    {.msg = {{0x23c, 0, 8, .frequency = 50U,  .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP19 (speed)
-    {.msg = {{0xc9,  0, 8, .frequency = 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // Tester_HSC2_ECM_FrP00 (gas pedal)
-    {.msg = {{0x1ec, 0, 8, .frequency = 50U,  .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPS_HSC2_FrP03 (driver torque)
-    {.msg = {{0x242, 0, 8, .frequency = 50U,  .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // RADAR_HSC2_FrP00 (cruise state)
-    {.msg = {{0x214, 0, 6, .frequency = 50U,  .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP09 (brake pressure)
+    {.msg = {{0x23c, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP19 (speed)
+    {.msg = {{0xc9,  0, 8, .frequency = 100U, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // Tester_HSC2_ECM_FrP00 (gas pedal)
+    {.msg = {{0x1ec, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPS_HSC2_FrP03 (driver torque)
+    {.msg = {{0x242, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // RADAR_HSC2_FrP00 (cruise state)
+    {.msg = {{0x214, 0, 6, .frequency = 50U,  .ignore_checksum = true, .max_counter = 3U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP09 (brake pressure)
   };
 
   safety_config ret;

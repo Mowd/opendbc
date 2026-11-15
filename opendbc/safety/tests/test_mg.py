@@ -186,19 +186,30 @@ class TestMGNonEVSafety(TestMGSafety):
         dat[2] |= 1 << 2
         self.assertFalse(self._tx(self._button_msg(bytes(dat))), bit)
 
+  def setUp(self):
+    super().setUp()
+    self.brake_counter = 0
+
   def _user_brake_msg(self, brake):
-    values = {"BrkPdlDrvrAppdPrsHSC2": 150 if brake else 0}
+    values = {"BrkPdlDrvrAppdPrsHSC2": 150 if brake else 0, "BrkPdlDrvrAppdPrsAlvRCHSC2": self.brake_counter}
+    self.brake_counter = (self.brake_counter + 1) % 4
     return self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, values)
 
   def _user_gas_msg(self, gas):
     values = {"AccelActuPosHSC2": 100 if gas else 0}
-    return self.packer.make_can_msg_safety("Tester_HSC2_ECM_FrP00", 0, values)
+    msg = self.packer.make_can_msg_safety("Tester_HSC2_ECM_FrP00", 0, values)
+    # byte 7 is the XOR of bytes 0-6 (not named in the DBC)
+    xor = 0
+    for b in bytes(msg[0].data)[:7]:
+      xor ^= b
+    msg[0].data[7] = xor
+    return msg
 
   def test_brake_threshold(self):
     # a single 75 kPa bit is noise, not a pressed pedal
-    self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 75}))
+    self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 75, "BrkPdlDrvrAppdPrsAlvRCHSC2": 0}))
     self.assertFalse(self.safety.get_brake_pressed_prev())
-    self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 150}))
+    self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 150, "BrkPdlDrvrAppdPrsAlvRCHSC2": 1}))
     self.assertTrue(self.safety.get_brake_pressed_prev())
 
   def test_ev_pedal_msgs_ignored(self):
@@ -209,16 +220,31 @@ class TestMGNonEVSafety(TestMGSafety):
     self.assertFalse(self.safety.get_brake_pressed_prev())
 
   def test_gas_counter(self):
-    pass  # the ECM gas message has no counter check
+    # the ECM gas frame's counter skips on the car, so it isn't checked
+    self._reset_safety_hooks()
+    msg = self._user_gas_msg(0)
+    for _ in range(common.MAX_WRONG_COUNTERS + 2):
+      self.assertTrue(self._rx(msg))
+
+  def test_rx_counters(self):
+    # speed, EPS, radar (4 bit) and brake pressure (2 bit) counters are checked
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._pcm_status_msg, self._user_brake_msg):
+      self._reset_safety_hooks()
+      for _ in range(8):
+        self.assertTrue(self._rx(make_msg(0)))
+      msg = make_msg(0)
+      for _ in range(common.MAX_WRONG_COUNTERS + 1):
+        valid = self._rx(msg)
+      self.assertFalse(valid, make_msg.__name__)
 
   def test_rx_checksums(self):
-    # MG HS: checksums and counters are not checked (MG 5 EV layout not assumed)
-    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_brake_msg, self._user_gas_msg, self._pcm_status_msg):
+    # MG HS: speed, radar (CRC-8 in byte 7), EPS (PV in bytes 2-3) and ECM gas (XOR in byte 7) checksums are checked
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_gas_msg, self._pcm_status_msg):
       self._reset_safety_hooks()
-      for _ in range(common.MAX_WRONG_COUNTERS + 2):
-        msg = make_msg(0)
-        msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
-        self.assertTrue(self._rx(msg))
+      self.assertTrue(self._rx(make_msg(0)), make_msg.__name__)
+      msg = make_msg(0)
+      msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
+      self.assertFalse(self._rx(msg), make_msg.__name__)
 
 
 if __name__ == "__main__":
