@@ -2,7 +2,9 @@ from opendbc.can.packer import CANPacker
 from opendbc.car import Bus
 from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.interfaces import CarControllerBase
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.mg.mgcan import create_cruise_buttons, create_lka_steering
+from opendbc.car.mg.speed_buttons import SpeedButtons
 from opendbc.car.mg.values import CarControllerParams, NON_EV_CAR
 
 # cruise switch tap timing, in gateway cruise switch frames (~30 ms each)
@@ -22,6 +24,7 @@ class CarController(CarControllerBase):
     self.last_button_counter = -1
     self.button_frames = 0
     self.last_brake_frame = -BRAKE_CANCEL_HOLD_FRAMES
+    self.speed_buttons = SpeedButtons()
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -58,6 +61,12 @@ class CarController(CarControllerBase):
     braking = self.frame - self.last_brake_frame < BRAKE_CANCEL_HOLD_FRAMES
 
     if self.CP.carFingerprint in NON_EV_CAR and CS.cruise_buttons_msg is not None:
+      # fork: curve speed, lower the stock ACC set speed with -/+ taps (see speed_buttons.py)
+      set_kph = CS.out.cruiseState.speed * CV.MS_TO_KPH
+      driver_pressing = any(CS.cruise_buttons.values())
+      self.speed_buttons.update(self.frame, CC.enabled, CS.acc_state, set_kph,
+                                CC.cruiseControl.speedTarget * CV.MS_TO_KPH, driver_pressing, CS.out.vEgo * CV.MS_TO_KPH)
+
       counter = int(CS.cruise_buttons_msg["CCSwStsAlvRC_h2HSC2"])
       if counter != self.last_button_counter:
         self.last_button_counter = counter
@@ -68,11 +77,19 @@ class CarController(CarControllerBase):
           button = "CCSwStsRsmSwA_h2HSC2"
 
         if button is not None:
+          self.speed_buttons.reset_tap()
           if self.button_frames % BUTTON_RETRY_FRAMES < BUTTON_PRESS_FRAMES:
             can_sends.append(create_cruise_buttons(self.packer, CS.cruise_buttons_msg, (counter + 1) % 4, button))
           self.button_frames += 1
         else:
           self.button_frames = 0
+          if driver_pressing:
+            # never press on top of the driver
+            self.speed_buttons.reset_tap()
+          else:
+            speed_button = self.speed_buttons.button(set_kph)
+            if speed_button is not None:
+              can_sends.append(create_cruise_buttons(self.packer, CS.cruise_buttons_msg, (counter + 1) % 4, speed_button))
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.params.STEER_MAX

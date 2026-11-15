@@ -44,6 +44,7 @@ class CarState(CarStateBase):
     self.cruise_buttons = dict.fromkeys(CRUISE_BUTTONS, 0)
     self.acc_go_notifier = False
     self.lka_sys_status = 0
+    self.acc_state = 0
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -88,6 +89,7 @@ class CarState(CarStateBase):
 
     # Cruise state
     acc_state = cp.vl["RADAR_HSC2_FrP00"]["ACCSysSts_RadarHSC2"]
+    self.acc_state = int(acc_state)
     ret.cruiseState.speed = cp.vl["RADAR_HSC2_FrP02"]["ACCDrvrSelTrgtSpd_RadarHSC2"] * CV.KPH_TO_MS
     if non_ev:
       # MG HS (ZS-family ADAS): as in the original hs branch

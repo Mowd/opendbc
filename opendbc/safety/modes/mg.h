@@ -155,12 +155,15 @@ static bool mg_tx_hook(const CANPacket_t *msg) {
   }
 
   // Cruise switches (MG HS only): only Cancel at any time, or only RES while engaged to leave standstill
+  // fork: or only SpdDec / SpdInc while engaged, to move the stock ACC set speed (curve speed)
   if (msg->addr == 0x1e1U) {
     // byte 0: SpdDec bit 2, SpdInc bit 3, Set bit 4, Rsm bit 5, Cancel bit 7; byte 2: DistDec bit 2, DistInc bit 3
     bool no_distance = (msg->data[2] & 0x0CU) == 0U;
-    bool only_cancel = ((msg->data[0] & 0xBCU) == 0x80U) && no_distance;
-    bool only_resume = ((msg->data[0] & 0xBCU) == 0x20U) && no_distance;
-    tx = only_cancel || (only_resume && safety.controls_allowed);
+    uint8_t switches = msg->data[0] & 0xBCU;
+    bool only_cancel = (switches == 0x80U) && no_distance;
+    bool only_resume = (switches == 0x20U) && no_distance;
+    bool only_speed = ((switches == 0x04U) || (switches == 0x08U)) && no_distance;
+    tx = only_cancel || ((only_resume || only_speed) && safety.controls_allowed);
   }
 
   return tx;
