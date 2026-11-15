@@ -154,8 +154,11 @@ class CarState(CarStateBase):
       # In the car settings menu, FCW sensitivity 1/2/3 shows in FCWSnstvtLvl and turning AEB off sets
       # AEBPedtrnDspCmd to 1; neither changes the warning or braking signals below
       ret.stockFcw = cp.vl["RADAR_HSC2_FrP02"]["FCWrnngSts_RadarHSC2"] != 0  # warning level 1-3
-      ret.stockAeb = bool(cp.vl["RADAR_HSC2_FrP02"]["AEBMsgReqHSC2"] == 2 or  # radar: AEB active
-                          cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1)  # ABS: AEB decel request honored
+      ret.stockAeb = cp.vl["RADAR_HSC2_FrP02"]["AEBMsgReqHSC2"] == 2  # radar: AEB active
+      if self.CP.carFingerprint == CAR.MG_HS:
+        # MG ZS: SCS_HSC2_FrP24 (0x251) is not on its bus (the mg-zs branch never read it), and reading a
+        # message makes it required, so CAN would never be valid ("Unknown Vehicle Variant")
+        ret.stockAeb = ret.stockAeb or cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1  # ABS: AEB decel request honored
 
     return ret
 
