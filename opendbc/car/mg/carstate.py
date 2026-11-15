@@ -128,10 +128,16 @@ class CarState(CarStateBase):
       ret.gearShifter = GEAR_MAP.get(int(cp.vl["GW_HSC2_ECM_FrP04"]["TrEstdGearHSC2"]), GearShifter.unknown)
 
     # Doors: on the MG HS each door was opened and closed while parked, and each of these signals followed it
-    ret.doorOpen = any([cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
-                        cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
-                        cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
-                        cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]])
+    doors = [cp.vl["GW_HSC2_BCM_FrP04"]["DrvrDoorOpenStsHSC2"],
+             cp.vl["GW_HSC2_BCM_FrP04"]["FrtPsngDoorOpenStsHSC2"],
+             cp.vl["GW_HSC2_BCM_FrP04"]["RLDoorOpenStsHSC2"],
+             cp.vl["GW_HSC2_BCM_FrP04"]["RRDoorOpenStsHSC2"]]
+    if self.CP.carFingerprint == CAR.MG_ZS:
+      # MG ZS (doors opened one by one while parked): the driver door is at 47|2, BntOpenStsHSC2 in this DBC
+      # (DrvrDoorOpenSts_H1_Safety in the original hs branch), and DrvrDoorOpenStsHSC2 stays 0;
+      # both rear doors show on RLDoorOpenStsHSC2
+      doors.append(cp.vl["GW_HSC2_BCM_FrP04"]["BntOpenStsHSC2"])
+    ret.doorOpen = any(doors)
 
     # Blinkers
     left_stalk = cp.vl["GW_HSC2_BCM_FrP04"]["DircnIndLampSwStsHSC2"] == 1
