@@ -33,7 +33,14 @@ class CarController(CarControllerBase):
         apply_torque = 0
 
       self.apply_torque_last = apply_torque
-      can_sends.append(create_lka_steering(self.packer, (self.frame // self.params.STEER_STEP) % 16, apply_torque, CC.latActive))
+
+      # MG HS: keep the dashboard LKA lamp. Active (2) while openpilot steers, otherwise what the stock camera sends
+      # (Standby 1 on the MG HS, 0 when LKA is turned off in the car settings)
+      lka_status = 0
+      if self.CP.carFingerprint in NON_EV_CAR:
+        lka_status = 2 if CC.latActive else CS.lka_sys_status
+      can_sends.append(create_lka_steering(self.packer, (self.frame // self.params.STEER_STEP) % 16, apply_torque,
+                                           CC.latActive, lka_status))
 
     # MG HS cruise switches: tap a switch right after gateway cruise switch frames, with the next counter value
     # - stop and go: in Standstill Wait the ACC only moves off after RES, sent when openpilot's planner
