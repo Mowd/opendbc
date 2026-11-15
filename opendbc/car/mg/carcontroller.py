@@ -8,6 +8,8 @@ from opendbc.car.mg.values import CarControllerParams, NON_EV_CAR
 # cruise switch tap timing, in gateway cruise switch frames (~30 ms each)
 BUTTON_PRESS_FRAMES = 4  # a real stalk press is ~6 frames, 3 is already enough
 BUTTON_RETRY_FRAMES = 33  # ~1 s between taps if the ACC hasn't reacted yet
+# braking: the stock ACC drops to Standby by itself, but up to ~0.2 s after openpilot sees the brake pressure
+BRAKE_CANCEL_HOLD_FRAMES = 100  # 1 s at 100 Hz
 
 
 class CarController(CarControllerBase):
@@ -19,6 +21,7 @@ class CarController(CarControllerBase):
     self.apply_torque_last = 0
     self.last_button_counter = -1
     self.button_frames = 0
+    self.last_brake_frame = -BRAKE_CANCEL_HOLD_FRAMES
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -48,12 +51,18 @@ class CarController(CarControllerBase):
     # - cancel: stop the stock ACC when openpilot disengages while it is still active
     # The ACC acts once the switch is released (seen with RES and SET): holding it (sending every frame) is
     # ignored and also masks the driver's own presses, so press for a few frames then let go
+    # - no cancel while (and shortly after) the driver brakes: the ACC is already leaving, and a Cancel tap would
+    #   turn braking into a stalk cancel (Active -> 4 Brake Only -> Standby instead of Active -> Standby)
+    if CS.out.brakePressed:
+      self.last_brake_frame = self.frame
+    braking = self.frame - self.last_brake_frame < BRAKE_CANCEL_HOLD_FRAMES
+
     if self.CP.carFingerprint in NON_EV_CAR and CS.cruise_buttons_msg is not None:
       counter = int(CS.cruise_buttons_msg["CCSwStsAlvRC_h2HSC2"])
       if counter != self.last_button_counter:
         self.last_button_counter = counter
         button = None
-        if CC.cruiseControl.cancel:
+        if CC.cruiseControl.cancel and not braking:
           button = "CCSwStsCanclSwA_h2HSC2"
         elif CC.cruiseControl.resume and CS.acc_go_notifier:
           button = "CCSwStsRsmSwA_h2HSC2"
