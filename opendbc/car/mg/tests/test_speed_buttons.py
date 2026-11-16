@@ -86,8 +86,8 @@ class TestSpeedButtons(unittest.TestCase):
       frame += 1
     self.assertLessEqual(taps, 6)  # 70 -> 45 once, then at most one step back and forth
 
-  def test_up_waits_for_the_car(self):
-    # far below the set speed (following a slower lead), raising it changes nothing: wait until the car catches up
+  def test_up_without_waiting_for_the_car(self):
+    # HS route 2a: waiting for the car to reach each 5 km/h step made it crawl back up from 30 km/h after a turn
     sb, acc = SpeedButtons(), FakeAcc(70)
     frame = 0
 
@@ -101,9 +101,8 @@ class TestSpeedButtons(unittest.TestCase):
       return acc.set_kph
 
     self.assertEqual(drive(300, 40, lambda s: 50), 40)
-    self.assertEqual(drive(800, 60, lambda s: 30), 40)
-    # the car catches up with each new set speed
-    self.assertEqual(drive(800, 60, lambda s: s - 1), 55)
+    # the target is back up to 60 while the car is still at 30: up to 55 right away (60 - UP_MARGIN_KPH -> 55)
+    self.assertEqual(drive(800, 60, lambda s: 30), 55)
 
   def test_not_when_already_slower(self):
     # following a slow lead at 35 km/h with 60 set: a 40 km/h curve target changes nothing yet
