@@ -10,6 +10,9 @@ to the next multiple of 5 km/h (63 -> 60, 33 -> 35); holding a switch steps 1 km
 so only taps are used. The switches do nothing in Standby, and the lowest set speed is 30 km/h.
 On an MG ZS on-ramp the ACC also ignored three taps in a row with nothing else different (50 -> 45 km/h at 51 km/h,
 Active), right after 16 accepted ones, so ignored taps only pause it for a while.
+With the gas pressed (Override) a tap moves it more than one step: MG ZS route 16, the driver pressed the gas during a
+tap up and the set speed went 35 -> 40 -> 45 -> 50 within 0.1 s. Such a tap is not checked; before, it turned the taps
+off for the rest of the drive, and two leads braking hard later on got no help (stock FCW, then stock AEB).
 """
 import math
 
@@ -54,16 +57,19 @@ class SpeedButtons:
     self.tap_button = None
     self.tap_frames = 0
     self.tap_start_kph = 0
+    self.tap_driver_kph = 0  # the driver's speed when the tap started: a tap up never goes past it
     self.ignored_taps = 0
     self.paused_until = 0  # control frame
-    self.disabled = False  # a wrong-way or double step after a tap: stop tapping for the rest of the drive
+    self.disabled = False  # a wrong-way step, or one past the driver's speed: stop tapping for the rest of the drive
     self.frame = 0
+    self.acc_state = 0
     self.last_tap_button = None
     self.last_tap_frame = -UP_AFTER_DOWN_FRAMES
 
   def update(self, frame: int, enabled: bool, acc_state: int, set_kph: float, target_kph: float, driver_pressing: bool,
              v_ego_kph: float):
     """Every control frame (100 Hz): decide which switch is wanted, if any."""
+    self.acc_state = acc_state
     self._decide(frame, enabled, acc_state, round(set_kph), target_kph, driver_pressing, v_ego_kph)
     if self.want is None:
       return
@@ -134,13 +140,17 @@ class SpeedButtons:
   def button(self, set_kph: float):
     """Every new gateway cruise switch frame (~33 Hz): the switch to send with it, or None."""
     set_kph = round(set_kph)
+    if self.tap_frames and self.acc_state != ACC_ACTIVE:
+      # the ACC left Active during the tap (gas, brake): the step it takes there isn't a cruising tap, don't judge it
+      self.tap_frames = 0
+      return None
     if self.tap_frames:
       self.tap_frames += 1
       if self.tap_frames <= TAP_FRAMES:
         return self.tap_button
       changed = set_kph != self.tap_start_kph
       if changed or self.tap_frames > TAP_FRAMES + TAP_TIMEOUT_FRAMES:
-        self._check_tap(set_kph - self.tap_start_kph)
+        self._check_tap(set_kph - self.tap_start_kph, set_kph)
         self.tap_frames = 0
       return None
 
@@ -148,12 +158,13 @@ class SpeedButtons:
       self.tap_button = self.want
       self.tap_frames = 1
       self.tap_start_kph = set_kph
+      self.tap_driver_kph = self.driver_set_kph
       self.last_tap_button = self.want
       self.last_tap_frame = self.frame
       return self.tap_button
     return None
 
-  def _check_tap(self, step: int):
+  def _check_tap(self, step: int, set_kph: int):
     expected_sign = -1 if self.tap_button == SPEED_DOWN else 1
     if step == 0:
       self.ignored_taps += 1
@@ -161,8 +172,14 @@ class SpeedButtons:
         self.paused_until = self.frame + IGNORED_PAUSE_FRAMES
         carlog.warning(f"MG speed buttons: {self.ignored_taps} taps ignored by the ACC, pausing {IGNORED_PAUSE_FRAMES // 100} s")
         self.ignored_taps = 0
-    elif step * expected_sign < 0 or abs(step) > STEP_KPH:
+    elif step * expected_sign < 0 or (step > 0 and set_kph > self.tap_driver_kph):
+      # the wrong way, or above the driver's own speed: the ACC doesn't do what the taps assume, stop for the drive
       self.disabled = True
       carlog.error(f"MG speed buttons: unexpected set speed change {step} km/h after {self.tap_button}, disabled for this drive")
+    elif abs(step) > STEP_KPH:
+      # the right way but more than one step: pause like ignored taps instead of giving up for the drive
+      self.ignored_taps = 0
+      self.paused_until = self.frame + IGNORED_PAUSE_FRAMES
+      carlog.warning(f"MG speed buttons: set speed changed {step} km/h after {self.tap_button}, pausing {IGNORED_PAUSE_FRAMES // 100} s")
     else:
       self.ignored_taps = 0

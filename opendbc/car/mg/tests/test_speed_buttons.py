@@ -10,16 +10,17 @@ GATEWAY_EVERY = 3  # a gateway cruise switch frame every ~30 ms, control runs at
 
 class FakeAcc:
   """The stock ACC as seen in MG HS/ZS rlogs: a released tap moves the set speed to the next multiple of 5."""
-  def __init__(self, set_kph, double_step=False, ignore=False):
+  def __init__(self, set_kph, double_step=False, ignore=False, wrong_way=False):
     self.set_kph = set_kph
     self.pressed = None
     self.double_step = double_step
     self.ignore = ignore
+    self.wrong_way = wrong_way
 
   def frame(self, button):
     if self.pressed is not None and button is None and not self.ignore:
       for _ in range(2 if self.double_step else 1):
-        if self.pressed == SPEED_DOWN:
+        if (self.pressed == SPEED_DOWN) != self.wrong_way:
           self.set_kph = max(MIN_SET_SPEED_KPH, math.ceil(self.set_kph / 5 - 1) * 5)
         else:
           self.set_kph = math.floor(self.set_kph / 5 + 1) * 5
@@ -130,11 +131,50 @@ class TestSpeedButtons(unittest.TestCase):
     self.assertEqual(acc.set_kph, 45)
     self.assertFalse(sb.lowered)
 
-  def test_disabled_on_unexpected_step(self):
-    sb, acc = SpeedButtons(), FakeAcc(60, double_step=True)
+  def test_disabled_on_wrong_way(self):
+    sb, acc = SpeedButtons(), FakeAcc(60, wrong_way=True)
     self.run_drive(sb, acc, [(300, 50)])
     self.assertTrue(sb.disabled)
-    self.assertEqual(acc.set_kph, 50)  # one double step, then nothing more
+    self.assertEqual(acc.set_kph, 65)  # one tap the wrong way, then nothing more
+
+  def test_paused_on_double_step(self):
+    # the right way but two steps: pause, don't give up for the drive
+    sb, acc = SpeedButtons(), FakeAcc(60, double_step=True)
+    self.run_drive(sb, acc, [(300, 50)])
+    self.assertFalse(sb.disabled)
+    self.assertEqual(acc.set_kph, 50)
+    self.assertGreater(sb.paused_until, 0)
+    acc.double_step = False
+    self.assertEqual(self.run_drive(sb, acc, [(IGNORED_PAUSE_FRAMES + 400, 37)]), [35])
+
+  def test_disabled_past_driver_speed(self):
+    # a double step up past the driver's own speed: the car would go faster than the driver chose, stop for the drive
+    sb, acc = SpeedButtons(), FakeAcc(60)
+    self.assertEqual(self.run_drive(sb, acc, [(300, 57)]), [55])
+    acc.double_step = True
+    self.assertEqual(self.run_drive(sb, acc, [(UP_AFTER_DOWN_FRAMES + 300, 0)]), [65])
+    self.assertTrue(sb.disabled)
+
+  def test_gas_during_tap(self):
+    # MG ZS route 16: the driver pressed the gas during a tap up that restored the speed after a lead (Override), and
+    # the set speed went 35 -> 50 at once. That isn't the ACC misbehaving: keep going once it is Active again.
+    sb, acc = SpeedButtons(), FakeAcc(110)
+    self.assertEqual(self.run_drive(sb, acc, [(800, 27)], v_ego=60), [30])
+    frame, state, gassed = 800, ACTIVE, False
+    for _ in range(1500):
+      if sb.tap_frames == 3 and not gassed and acc.set_kph == 35:
+        state, gassed = OVERRIDE, True
+        acc.set_kph = 50  # Override: the tap moves it by three steps
+      elif gassed and frame > 1000:
+        state = ACTIVE
+      sb.update(frame, True, state, acc.set_kph, 0, False, 30)
+      if frame % GATEWAY_EVERY == 0:
+        acc.frame(sb.button(acc.set_kph))
+      frame += 1
+    self.assertTrue(gassed)
+    self.assertFalse(sb.disabled)
+    self.assertEqual(sb.paused_until, 0)
+    self.assertEqual(acc.set_kph, 110)
 
   def test_paused_when_ignored(self):
     # the ACC ignores taps for a while: pause, don't give up for the drive
