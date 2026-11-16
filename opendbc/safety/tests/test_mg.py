@@ -280,6 +280,16 @@ class TestMGZSSafety(TestMGNonEVSafety):
   # counter or checksum
   SAFETY_PARAM = MgSafetyFlags.NON_EV | MgSafetyFlags.ZS
 
+  def test_brake_switch(self):
+    # the MG ZS (ICE) has no HCU frame (0xAF): brake pressure only
+    self._rx(self._brake_switch_msg(True))
+    self.assertFalse(self.safety.get_brake_pressed_prev())
+    self.assertTrue(self._rx(self._user_brake_msg(True)))
+    self.assertTrue(self.safety.get_brake_pressed_prev())
+
+  def test_brake_switch_disengages(self):
+    self.skipTest("the MG ZS has no brake switch frame")
+
   def test_rx_counters(self):
     for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_brake_msg):
       self._reset_safety_hooks()
