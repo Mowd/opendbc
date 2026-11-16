@@ -32,8 +32,8 @@ static uint32_t mg_compute_checksum(const CANPacket_t *msg) {
     0x7FU, 0x62U, 0x45U, 0x58U, 0x0BU, 0x16U, 0x31U, 0x2CU, 0x97U, 0x8AU, 0xADU, 0xB0U, 0xE3U, 0xFEU, 0xD9U, 0xC4U
   };
   uint32_t checksum;
-  if (msg->addr == 0xc9U) {
-    // MG HS ECM: byte 7 is the XOR of bytes 0-6
+  if ((msg->addr == 0xc9U) || (msg->addr == 0xafU)) {
+    // MG HS ECM gas and HCU brake switch frames: byte 7 is the XOR of bytes 0-6 (the EVs don't check 0xAF's)
     checksum = 0U;
     for (int i = 0; i < 7; i++) {
       checksum ^= msg->data[i];
@@ -78,6 +78,10 @@ static uint8_t mg_get_counter(const CANPacket_t *msg) {
   return counter;
 }
 
+// MG HS: the stock ACC cancels as soon as the brake switch closes, before the brake pressure reaches 100 kPa
+static bool mg_brake_switch = false;
+static bool mg_brake_pressure = false;
+
 static void mg_rx_hook(const CANPacket_t *msg) {
   // Vehicle speed
   if (msg_matches(msg, 0x23cU, 0U)) {
@@ -108,8 +112,13 @@ static void mg_rx_hook(const CANPacket_t *msg) {
   if (safety_setup.mg_non_ev) {
     if (msg_matches(msg, 0x214U, 0U)) {
       // SCS_HSC2_FrP09 BrkPdlDrvrAppdPrsHSC2, 75 kPa per bit; pressed above 100 kPa
-      safety.brake_pressed = msg->data[1] > 1U;
+      mg_brake_pressure = msg->data[1] > 1U;
     }
+    if (msg_matches(msg, 0xafU, 0U)) {
+      // GW_HSC2_HCU_FrP00 EPTBrkPdlDscrtInptStsHSC2: brake switch, closes with a light touch (MG HS PHEV only)
+      mg_brake_switch = GET_BIT(msg, 31U);
+    }
+    safety.brake_pressed = mg_brake_switch || mg_brake_pressure;
   } else {
     if (msg_matches(msg, 0x1b6U, 0U)) {
       safety.brake_pressed = GET_BIT(msg, 10U);
@@ -182,6 +191,8 @@ static safety_config mg_init(uint16_t param) {
   const uint16_t MG_PARAM_NON_EV = 1;
   // ICE/PHEV (e.g. MG HS PHEV): gas and brake come from different messages than the EVs
   safety_setup.mg_non_ev = GET_FLAG(param, MG_PARAM_NON_EV);
+  mg_brake_switch = false;
+  mg_brake_pressure = false;
 
   static const CanMsg MG_TX_MSGS[] = {{0x1fd, 0, 8, .check_relay = true}};
   static const CanMsg MG_NON_EV_TX_MSGS[] = {
@@ -198,14 +209,16 @@ static safety_config mg_init(uint16_t param) {
   };
 
   // MG HS: checked on MG HS drives (~180k frames each, checksums all valid, counters only skip while starting up).
-  // Speed, EPS and radar use the MG 5 EV layouts. The ECM gas frame has an XOR checksum, but its counter skips
-  // (over a thousand times in some segments), so it isn't checked; the brake pressure frame has no checksum
+  // Speed, EPS and radar use the MG 5 EV layouts. The ECM gas and HCU brake switch frames have an XOR checksum, but
+  // their counters skip (over a thousand times in some segments), so they aren't checked; the brake pressure frame
+  // has no checksum
   static const RxCheck mg_non_ev_rx_checks[] = {
     {.msg = {{0x23c, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP19 (speed)
     {.msg = {{0xc9,  0, 8, .frequency = 100U, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // Tester_HSC2_ECM_FrP00 (gas pedal)
     {.msg = {{0x1ec, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // EPS_HSC2_FrP03 (driver torque)
     {.msg = {{0x242, 0, 8, .frequency = 50U,  .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // RADAR_HSC2_FrP00 (cruise state)
     {.msg = {{0x214, 0, 6, .frequency = 50U,  .ignore_checksum = true, .max_counter = 3U, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // SCS_HSC2_FrP09 (brake pressure)
+    {.msg = {{0xaf,  0, 8, .frequency = 100U, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},   // GW_HSC2_HCU_FrP00 (brake switch)
   };
 
   safety_config ret;

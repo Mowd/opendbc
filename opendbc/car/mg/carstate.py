@@ -70,6 +70,10 @@ class CarState(CarStateBase):
     if non_ev:
       # driver applied brake pressure, 75 kPa per bit; keep in sync with safety (raw > 1)
       ret.brakePressed = cp.vl["SCS_HSC2_FrP09"]["BrkPdlDrvrAppdPrsHSC2"] > 100
+      if self.CP.carFingerprint == CAR.MG_HS:
+        # or the brake switch: a light touch (75 kPa) closes it and cancels the stock ACC (HS route 26, three times),
+        # which the pressure alone missed. Only on the PHEV's HCU frame
+        ret.brakePressed = ret.brakePressed or cp.vl["GW_HSC2_HCU_FrP00"]["EPTBrkPdlDscrtInptStsHSC2"] == 1
     else:
       ret.brakePressed = cp.vl["EHBS_HSC2_FrP00"]["BrkPdlAppdHSC2"] == 1
 
