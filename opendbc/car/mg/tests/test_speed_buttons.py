@@ -2,7 +2,7 @@ import math
 import unittest
 
 from opendbc.car.mg.speed_buttons import SpeedButtons, SPEED_DOWN, SPEED_UP, DRIVER_HOLDOFF_FRAMES, IGNORED_PAUSE_FRAMES, \
-                                         MIN_SET_SPEED_KPH, UP_AFTER_DOWN_FRAMES
+                                         MIN_SET_SPEED_KPH, UP_AFTER_DOWN_FRAMES, UP_MARGIN_KPH
 
 ACTIVE, STANDBY, OVERRIDE = 2, 1, 3
 GATEWAY_EVERY = 3  # a gateway cruise switch frame every ~30 ms, control runs at 100 Hz
@@ -64,7 +64,46 @@ class TestSpeedButtons(unittest.TestCase):
 
   def test_rising_target_steps_up(self):
     sb, acc = SpeedButtons(), FakeAcc(70)
-    self.assertEqual(self.run_drive(sb, acc, [(300, 40), (300, 55), (300, 90)]), [40, 55, 70])
+    self.assertEqual(self.run_drive(sb, acc, [(300, 40), (300, 55 + UP_MARGIN_KPH), (300, 90)]), [40, 55, 70])
+
+  def test_step_hysteresis(self):
+    # just below a step keeps it (44 -> 45, not 40); going back up needs the target well above the next step
+    sb, acc = SpeedButtons(), FakeAcc(70)
+    self.assertEqual(self.run_drive(sb, acc, [(300, 44), (400, 52), (400, 43.5), (400, 53.5)]), [45, 45, 45, 50])
+
+  def test_curves_one_after_another(self):
+    # MG HS route 23: a target wandering 44-53 km/h through curves at ~40 km/h moved the set speed ten times
+    sb, acc = SpeedButtons(), FakeAcc(70)
+    taps = 0
+    frame = 0
+    for i in range(1700):
+      target = 48.5 + 4.5 * math.sin(i / 120)
+      sb.update(frame, True, ACTIVE, acc.set_kph, target, False, 40)
+      if frame % GATEWAY_EVERY == 0:
+        b = sb.button(acc.set_kph)
+        taps += b is not None and sb.tap_frames == 1
+        acc.frame(b)
+      frame += 1
+    self.assertLessEqual(taps, 6)  # 70 -> 45 once, then at most one step back and forth
+
+  def test_up_waits_for_the_car(self):
+    # far below the set speed (following a slower lead), raising it changes nothing: wait until the car catches up
+    sb, acc = SpeedButtons(), FakeAcc(70)
+    frame = 0
+
+    def drive(frames, target, v_ego):
+      nonlocal frame
+      for _ in range(frames):
+        sb.update(frame, True, ACTIVE, acc.set_kph, target, False, v_ego(acc.set_kph))
+        if frame % GATEWAY_EVERY == 0:
+          acc.frame(sb.button(acc.set_kph))
+        frame += 1
+      return acc.set_kph
+
+    self.assertEqual(drive(300, 40, lambda s: 50), 40)
+    self.assertEqual(drive(800, 60, lambda s: 30), 40)
+    # the car catches up with each new set speed
+    self.assertEqual(drive(800, 60, lambda s: s - 1), 55)
 
   def test_not_when_already_slower(self):
     # following a slow lead at 35 km/h with 60 set: a 40 km/h curve target changes nothing yet
@@ -114,7 +153,7 @@ class TestSpeedButtons(unittest.TestCase):
     ups = []
     frame = 0
     for i in range(UP_AFTER_DOWN_FRAMES - 50):
-      target = 54 if i < 30 or (i // 20) % 2 else 58  # 54 -> 50, 58 -> 55
+      target = 51 if i < 30 or (i // 20) % 2 else 58  # 51 -> 50, 58 -> 55
       sb.update(frame, True, ACTIVE, acc.set_kph, target, False, 100)
       if frame % GATEWAY_EVERY == 0:
         b = sb.button(acc.set_kph)
