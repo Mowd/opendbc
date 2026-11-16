@@ -171,6 +171,14 @@ class CarState(CarStateBase):
         # message makes it required, so CAN would never be valid ("Unknown Vehicle Variant")
         ret.stockAeb = ret.stockAeb or cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1  # ABS: AEB decel request honored
 
+      # fork: the stock radar's lead and the ACC's acceleration request, for openpilot's warning when the radar misses
+      # a lead the camera sees. HS route 23: the lead flag followed openpilot's lead (146 of 152 samples) and the
+      # request matched the car's acceleration; it reads a constant -7.22 on the ZS, so HS only
+      if self.CP.carFingerprint == CAR.MG_HS:
+        ret.stockRadarValid = True
+        ret.stockRadarLead = cp.vl["RADAR_HSC2_FrP02"]["ACCObjDet_RadarHSC2"] == 1
+        ret.stockAccelRequest = float(cp.vl["RADAR_HSC2_FrP00"]["ACCAccReqValHSC2"])
+
     return ret
 
   @staticmethod
