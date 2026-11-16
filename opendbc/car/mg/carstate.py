@@ -155,12 +155,16 @@ class CarState(CarStateBase):
                           cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1)  # ABS: AEB decel request honored
 
       # fork: the stock radar's lead and the ACC's acceleration request, for openpilot's warning when the radar misses
-      # a lead the camera sees. HS route 23: the lead flag followed openpilot's lead (146 of 152 samples) and the
-      # request matched the car's acceleration; it reads a constant -7.22 on the ZS, so HS only
+      # a lead the camera sees. The lead flag followed openpilot's lead on both cars (HS route 23: 146 of 152 samples,
+      # ZS routes 06/08: 347 of 357). The request matched the HS's acceleration; on the ZS 0x242 is all zeros and no
+      # bus 0 signal follows the car's acceleration (the radar likely talks to the ABS on a bus the harness can't
+      # see), so it is NaN there and openpilot uses the measured acceleration instead
+      ret.stockRadarValid = True
+      ret.stockRadarLead = cp.vl["RADAR_HSC2_FrP02"]["ACCObjDet_RadarHSC2"] == 1
       if self.CP.carFingerprint == CAR.MG_HS:
-        ret.stockRadarValid = True
-        ret.stockRadarLead = cp.vl["RADAR_HSC2_FrP02"]["ACCObjDet_RadarHSC2"] == 1
         ret.stockAccelRequest = float(cp.vl["RADAR_HSC2_FrP00"]["ACCAccReqValHSC2"])
+      else:
+        ret.stockAccelRequest = float('nan')
 
     return ret
 
