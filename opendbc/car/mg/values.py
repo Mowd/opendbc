@@ -74,9 +74,15 @@ class CarControllerParams:
       self.STEER_DELTA_DOWN = 8   # Min torque reached in 0.75s
 
 
+class MgFlags(IntFlag):
+  # MG HS PHEV: has the HCU (0xAF, brake switch); the MG HS 1.5 ICE doesn't
+  PHEV = 1
+
+
 class MgSafetyFlags(IntFlag):
   NON_EV = 1  # ICE/PHEV: gas from ECM (0xc9), brake from driver brake pressure (0x214)
   ZS = 2  # MG ZS: radar (0x242) and ECM (0xc9) frames without the MG HS counters and checksums
+  PHEV = 4  # MG HS PHEV: also the HCU brake switch (0xaf)
 
 
 NON_EV_CAR = {CAR.MG_HS, CAR.MG_ZS}
