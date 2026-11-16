@@ -34,7 +34,6 @@ DOWN_AFTER_UP_FRAMES = 100  # 1 s, lowering for a curve matters more
 # km/h moved the set speed 40 -> 45 -> 50 -> 45 -> 40 -> ... ten times in 17 s while the car went 36-42 km/h
 DOWN_MARGIN_KPH = 2  # a target up to this much below a step keeps that step (44 -> 45, not 40)
 UP_MARGIN_KPH = 3  # while the target is still on, step up only once it is this much above the next step
-NEAR_SET_KPH = 3  # ...and only when the car is this close to the set speed: below it, a higher one changes nothing
 
 SPEED_DOWN = "CCSwStsSpdDecSwA_h2HSC2"
 SPEED_UP = "CCSwStsSpdIncSwA_h2HSC2"
@@ -117,7 +116,9 @@ class SpeedButtons:
       if down_to < set_kph and (self.lowered or v_ego_kph > desired):
         self.lowered = True
         self.want = SPEED_DOWN
-      elif self.lowered and up_to > set_kph and v_ego_kph > set_kph - NEAR_SET_KPH:
+      # (also when the car is still slower than the set speed: waiting for it made every 5 km/h step wait for the
+      # ACC's gentle approach, so after a lead or a turn the car crawled back up from 30 km/h, HS route 2a)
+      elif self.lowered and up_to > set_kph:
         self.want = SPEED_UP
     elif self.lowered:
       # back to the driver's speed; a tap only reaches multiples of 5, so stay at or below it
