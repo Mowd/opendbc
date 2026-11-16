@@ -30,6 +30,11 @@ IGNORED_PAUSE_FRAMES = 1000  # 10 s pause after MAX_IGNORED_TAPS ignored taps
 # a noisy target near a 5 km/h step tapped -/+/- within 0.7 s through S-curves: wait before tapping back
 UP_AFTER_DOWN_FRAMES = 300  # 3 s
 DOWN_AFTER_UP_FRAMES = 100  # 1 s, lowering for a curve matters more
+# hysteresis around the 5 km/h steps. MG HS route 23, curves one after another at ~40 km/h: a target around 44-53
+# km/h moved the set speed 40 -> 45 -> 50 -> 45 -> 40 -> ... ten times in 17 s while the car went 36-42 km/h
+DOWN_MARGIN_KPH = 2  # a target up to this much below a step keeps that step (44 -> 45, not 40)
+UP_MARGIN_KPH = 3  # while the target is still on, step up only once it is this much above the next step
+NEAR_SET_KPH = 3  # ...and only when the car is this close to the set speed: below it, a higher one changes nothing
 
 SPEED_DOWN = "CCSwStsSpdDecSwA_h2HSC2"
 SPEED_UP = "CCSwStsSpdIncSwA_h2HSC2"
@@ -105,12 +110,14 @@ class SpeedButtons:
 
     if curve and not self.driver_override:
       desired = max(MIN_SET_SPEED_KPH, floor_step(target_kph))
+      down_to = max(MIN_SET_SPEED_KPH, floor_step(target_kph + DOWN_MARGIN_KPH))
+      up_to = max(MIN_SET_SPEED_KPH, floor_step(target_kph - UP_MARGIN_KPH))
       # start only when the car is faster than that: following a slower lead or crawling through a turn,
       # lowering the set speed changes nothing yet
-      if desired < set_kph and (self.lowered or v_ego_kph > desired):
+      if down_to < set_kph and (self.lowered or v_ego_kph > desired):
         self.lowered = True
         self.want = SPEED_DOWN
-      elif self.lowered and desired > set_kph:
+      elif self.lowered and up_to > set_kph and v_ego_kph > set_kph - NEAR_SET_KPH:
         self.want = SPEED_UP
     elif self.lowered:
       # back to the driver's speed; a tap only reaches multiples of 5, so stay at or below it
