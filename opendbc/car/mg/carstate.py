@@ -3,7 +3,7 @@ import copy
 from opendbc.can.parser import CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mg.values import DBC, NON_EV_CAR
+from opendbc.car.mg.values import CAR, DBC, NON_EV_CAR
 from opendbc.car.common.conversions import Conversions as CV
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -153,6 +153,14 @@ class CarState(CarStateBase):
       ret.stockFcw = cp.vl["RADAR_HSC2_FrP02"]["FCWrnngSts_RadarHSC2"] != 0  # warning level 1-3
       ret.stockAeb = bool(cp.vl["RADAR_HSC2_FrP02"]["AEBMsgReqHSC2"] == 2 or  # radar: AEB active
                           cp.vl["SCS_HSC2_FrP24"]["ChAEBDclReqRespHSC2"] == 1)  # ABS: AEB decel request honored
+
+      # fork: the stock radar's lead and the ACC's acceleration request, for openpilot's warning when the radar misses
+      # a lead the camera sees. HS route 23: the lead flag followed openpilot's lead (146 of 152 samples) and the
+      # request matched the car's acceleration; it reads a constant -7.22 on the ZS, so HS only
+      if self.CP.carFingerprint == CAR.MG_HS:
+        ret.stockRadarValid = True
+        ret.stockRadarLead = cp.vl["RADAR_HSC2_FrP02"]["ACCObjDet_RadarHSC2"] == 1
+        ret.stockAccelRequest = float(cp.vl["RADAR_HSC2_FrP00"]["ACCAccReqValHSC2"])
 
     return ret
 

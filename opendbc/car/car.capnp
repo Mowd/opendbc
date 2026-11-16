@@ -205,6 +205,11 @@ struct CarState {
   blockPcmEnable @60 :Bool;  # whether to allow PCM to enable this frame
   carNotReady @61 :Bool;  # car is transiently refusing engagement, used to prevent a fault if engaged
 
+  # fork (MG HS): what the stock radar ACC is doing, so openpilot can warn when it misses a lead the camera sees
+  stockRadarValid @62 :Bool;  # the car port fills in the two below
+  stockRadarLead @63 :Bool;  # the stock radar tracks a lead (the dashboard lead car icon)
+  stockAccelRequest @64 :Float32;  # m/s^2 the stock ACC asks for, negative = braking
+
   # cruise state
   cruiseState @10 :CruiseState;
 
