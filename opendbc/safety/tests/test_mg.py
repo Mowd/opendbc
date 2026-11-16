@@ -205,6 +205,33 @@ class TestMGNonEVSafety(TestMGSafety):
     msg[0].data[7] = xor
     return msg
 
+  def _brake_switch_msg(self, on):
+    msg = self.packer.make_can_msg_safety("GW_HSC2_HCU_FrP00", 0, {"EPTBrkPdlDscrtInptStsHSC2": 1 if on else 0})
+    # byte 7 is the XOR of bytes 0-6 (not named in the DBC)
+    xor = 0
+    for b in bytes(msg[0].data)[:7]:
+      xor ^= b
+    msg[0].data[7] = xor
+    return msg
+
+  def test_brake_switch(self):
+    # a light touch closes the brake switch (and cancels the stock ACC) before the pressure reaches 100 kPa
+    self.assertTrue(self._rx(self._brake_switch_msg(True)))
+    self.assertTrue(self.safety.get_brake_pressed_prev())
+    self.assertTrue(self._rx(self._user_brake_msg(False)))
+    self.assertTrue(self.safety.get_brake_pressed_prev())  # still pressed: the switch is still closed
+    self.assertTrue(self._rx(self._brake_switch_msg(False)))
+    self.assertFalse(self.safety.get_brake_pressed_prev())
+    # and pressure alone still counts
+    self.assertTrue(self._rx(self._user_brake_msg(True)))
+    self.assertTrue(self.safety.get_brake_pressed_prev())
+
+  def test_brake_switch_disengages(self):
+    self.safety.set_controls_allowed(True)
+    self._rx(self._speed_msg(10))
+    self._rx(self._brake_switch_msg(True))
+    self.assertFalse(self.safety.get_controls_allowed())
+
   def test_brake_threshold(self):
     # a single 75 kPa bit is noise, not a pressed pedal
     self._rx(self.packer.make_can_msg_safety("SCS_HSC2_FrP09", 0, {"BrkPdlDrvrAppdPrsHSC2": 75, "BrkPdlDrvrAppdPrsAlvRCHSC2": 0}))
@@ -238,8 +265,9 @@ class TestMGNonEVSafety(TestMGSafety):
       self.assertFalse(valid, make_msg.__name__)
 
   def test_rx_checksums(self):
-    # MG HS: speed, radar (CRC-8 in byte 7), EPS (PV in bytes 2-3) and ECM gas (XOR in byte 7) checksums are checked
-    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_gas_msg, self._pcm_status_msg):
+    # MG HS: speed, radar (CRC-8 in byte 7), EPS (PV in bytes 2-3), ECM gas and HCU brake switch (XOR in byte 7)
+    # checksums are checked
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_gas_msg, self._pcm_status_msg, self._brake_switch_msg):
       self._reset_safety_hooks()
       self.assertTrue(self._rx(make_msg(0)), make_msg.__name__)
       msg = make_msg(0)
