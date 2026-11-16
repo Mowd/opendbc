@@ -3,7 +3,7 @@ import copy
 from opendbc.can.parser import CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.interfaces import CarStateBase
-from opendbc.car.mg.values import CAR, DBC, NON_EV_CAR
+from opendbc.car.mg.values import CAR, DBC, NON_EV_CAR, MgFlags
 from opendbc.car.common.conversions import Conversions as CV
 
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -70,9 +70,9 @@ class CarState(CarStateBase):
     if non_ev:
       # driver applied brake pressure, 75 kPa per bit; keep in sync with safety (raw > 1)
       ret.brakePressed = cp.vl["SCS_HSC2_FrP09"]["BrkPdlDrvrAppdPrsHSC2"] > 100
-      if self.CP.carFingerprint == CAR.MG_HS:
+      if self.CP.flags & MgFlags.PHEV:
         # or the brake switch: a light touch (75 kPa) closes it and cancels the stock ACC (HS route 26, three times),
-        # which the pressure alone missed. Only on the PHEV's HCU frame
+        # which the pressure alone missed. Only on the PHEV's HCU frame, the MG HS 1.5 ICE doesn't send it
         ret.brakePressed = ret.brakePressed or cp.vl["GW_HSC2_HCU_FrP00"]["EPTBrkPdlDscrtInptStsHSC2"] == 1
     else:
       ret.brakePressed = cp.vl["EHBS_HSC2_FrP00"]["BrkPdlAppdHSC2"] == 1

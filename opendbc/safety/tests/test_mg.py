@@ -106,8 +106,8 @@ class TestMGSafety(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest):
 
 
 class TestMGNonEVSafety(TestMGSafety):
-  # ICE/PHEV (MG HS PHEV): gas from ECM, brake from driver brake pressure
-  SAFETY_PARAM = MgSafetyFlags.NON_EV
+  # ICE/PHEV (MG HS PHEV): gas from ECM, brake from driver brake pressure or the HCU brake switch
+  SAFETY_PARAM = MgSafetyFlags.NON_EV | MgSafetyFlags.PHEV
 
   TX_MSGS = [[0x1fd, 0], [0x1e1, 0]]
 
@@ -268,6 +268,28 @@ class TestMGNonEVSafety(TestMGSafety):
     # MG HS: speed, radar (CRC-8 in byte 7), EPS (PV in bytes 2-3), ECM gas and HCU brake switch (XOR in byte 7)
     # checksums are checked
     for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_gas_msg, self._pcm_status_msg, self._brake_switch_msg):
+      self._reset_safety_hooks()
+      self.assertTrue(self._rx(make_msg(0)), make_msg.__name__)
+      msg = make_msg(0)
+      msg[0].data[3 if make_msg == self._torque_driver_msg else 7] ^= 0xff
+      self.assertFalse(self._rx(msg), make_msg.__name__)
+
+
+class TestMGHSICESafety(TestMGNonEVSafety):
+  # MG HS 1.5 ICE: no HCU, so no brake switch frame (0xaf): brake from the pressure only
+  SAFETY_PARAM = MgSafetyFlags.NON_EV
+
+  def test_brake_switch(self):
+    self._rx(self._brake_switch_msg(True))
+    self.assertFalse(self.safety.get_brake_pressed_prev())
+    self.assertTrue(self._rx(self._user_brake_msg(True)))
+    self.assertTrue(self.safety.get_brake_pressed_prev())
+
+  def test_brake_switch_disengages(self):
+    pass
+
+  def test_rx_checksums(self):
+    for make_msg in (self._speed_msg, self._torque_driver_msg, self._user_gas_msg, self._pcm_status_msg):
       self._reset_safety_hooks()
       self.assertTrue(self._rx(make_msg(0)), make_msg.__name__)
       msg = make_msg(0)
