@@ -20,6 +20,15 @@ BRAKE_CANCEL_HOLD_FRAMES = 100  # 1 s at 100 Hz
 EPS_LOCKOUT = 4
 EPS_PAUSE_FRAMES = 10  # steering frames (0.2 s at 50 Hz) without a request
 EPS_RETRY_FRAMES = 50  # steering frames (1 s) of requesting before pausing again
+# The lockout comes in two steps: once it sees the driver steering against the request, the EPS freezes its output
+# (ChLKARespToqHSC2 stays at one value, it no longer follows the request) and locks out exactly 1.9 s later unless the
+# conflict ends first (MG ZS: 8 freezes, the 4 that lasted 1.9 s all locked out, the other 4 ended in 0.3-1.7 s). So
+# treat a freeze like a lockout and pause already then: frozen for 0.24 s, the request 0.25 Nm away from the output
+# and the driver steering against it. ZS: caught all 8 freezes ~0.24 s in; no other triggers in ZS (20 min) or
+# MG HS (51 min) steering.
+EPS_FREEZE_FRAMES = 12  # steering frames
+EPS_FREEZE_GAP = 25  # request vs output, in request units (0.01 Nm)
+EPS_FREEZE_DRIVER_TORQUE = 0.5  # Nm
 
 
 class CarController(CarControllerBase):
@@ -35,6 +44,8 @@ class CarController(CarControllerBase):
     self.speed_buttons = SpeedButtons()
     self.eps_pause_frames = 0
     self.eps_retry_frames = 0
+    self.eps_resp_last = 0.0
+    self.eps_frozen_frames = 0
 
   def eps_lockout_ok(self, locked: bool) -> bool:
     """Every steering frame: False while the request is paused for an EPS lockout (see EPS_LOCKOUT)."""
@@ -52,6 +63,16 @@ class CarController(CarControllerBase):
     self.eps_retry_frames -= 1
     return True
 
+  def eps_frozen(self, CS) -> bool:
+    """Every steering frame: the EPS froze its output against the driver (see EPS_FREEZE_FRAMES)."""
+    resp = CS.out.steeringTorqueEps
+    self.eps_frozen_frames = self.eps_frozen_frames + 1 if abs(resp - self.eps_resp_last) < 0.005 else 0
+    self.eps_resp_last = resp
+    driver = CS.out.steeringTorque
+    return (CS.eps_ctrl_sts == 1 and self.eps_frozen_frames >= EPS_FREEZE_FRAMES and
+            abs(self.apply_torque_last - resp * 100) > EPS_FREEZE_GAP and
+            resp * driver < 0 and abs(driver) >= EPS_FREEZE_DRIVER_TORQUE)
+
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
     can_sends = []
@@ -60,7 +81,9 @@ class CarController(CarControllerBase):
     if self.frame % self.params.STEER_STEP == 0:
       steer = CC.latActive
       if self.CP.carFingerprint in NON_EV_CAR:
-        steer = steer and self.eps_lockout_ok(CC.latActive and CS.eps_ctrl_sts == EPS_LOCKOUT)
+        frozen = self.eps_frozen(CS)  # keep tracking the output every frame
+        locked = CS.eps_ctrl_sts == EPS_LOCKOUT or frozen
+        steer = steer and self.eps_lockout_ok(CC.latActive and locked)
 
       if steer:
         new_torque = int(round(actuators.torque * self.params.STEER_MAX))
