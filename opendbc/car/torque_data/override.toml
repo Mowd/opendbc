@@ -85,7 +85,9 @@ legend = ["LAT_ACCEL_FACTOR", "MAX_LAT_ACCEL_MEASURED", "FRICTION"]
 "MG_5_EV" = [1.2, 2.5, 0.18]
 # MG HS: openpilot's live torque estimate (torqued) from ~4260 points above 54 km/h: 0.88-0.94 and friction 0.19
 "MG_HS" = [0.9, 2.5, 0.19]
-"MG_ZS" = [1.2, 2.5, 0.18]
+# MG ZS: torqued on route 08 (driver rarely steering against openpilot, ~9000-9900 points): 0.96-1.00 and friction 0.23.
+# Lower on routes where the driver held the wheel against it (16: 0.55-0.71, 3d: 0.33-0.36), so not those
+"MG_ZS" = [1.0, 2.5, 0.22]
 "HYUNDAI_STARIA_4TH_GEN" = [1.8, 2.0, 0.15]
 "GENESIS_GV70_ELECTRIFIED_1ST_GEN" = [1.9, 1.9, 0.09]
 "GENESIS_G80_2ND_GEN_FL" = [2.5819356441497803, 2.5, 0.11244568973779678]

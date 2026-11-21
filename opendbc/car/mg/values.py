@@ -32,7 +32,8 @@ class CAR(Platforms):
   # MG ZS 2025 (ICE): same ADAS and CAN layout as the MG HS, parameters from the mg-zs branch
   MG_ZS = MgPlatformConfig(
     [MgCarDocs("MG ZS 2025")],
-    CarSpecs(wheelbase=2.58, steerRatio=15.8),
+    # steerRatio: the mg-zs branch used 15.8; paramsd learned 18.6-18.9 on routes 08, 16 and 3d
+    CarSpecs(wheelbase=2.58, steerRatio=18.7),
     {Bus.pt: 'mg_zs_generated'},
   )
 
