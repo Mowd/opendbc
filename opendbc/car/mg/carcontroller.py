@@ -12,24 +12,32 @@ BUTTON_PRESS_FRAMES = 4  # a real stalk press is ~6 frames, 3 is already enough
 BUTTON_RETRY_FRAMES = 33  # ~1 s between taps if the ACC hasn't reacted yet
 # braking: the stock ACC drops to Standby by itself, but up to ~0.2 s after openpilot sees the brake pressure
 BRAKE_CANCEL_HOLD_FRAMES = 100  # 1 s at 100 Hz
-# EPS lockout (ChLKACtrlStsHSC2 4, after the driver steers against the request): the EPS ignores requests and reports
-# no torque while openpilot still shows engaged. MG ZS route 3d: 4 lockouts, the EPS stayed locked for 18-120 s while
-# openpilot kept requesting (up to the full 3 Nm, nothing steered); each one cleared 0.03-2 s after the request was
-# dropped, and the next request was followed. Most MG HS lockouts also cleared without a request, a few only once one
-# was sent again. So pause the request, then try again, until the EPS follows.
+# EPS lockout. ChLKACtrlStsHSC2: 0 released, 1 following the request, 4 locked out. Locked out or stuck, the EPS gives
+# no torque while openpilot still shows engaged, so drop the request until the EPS has released (0), then request again.
+# - MG ZS route 3d: after the driver steered against the request the EPS locked out (4) and stayed so for 18-120 s while
+#   openpilot kept requesting; each time it released 0.03-2 s after the request was dropped and followed the next one.
+# - It locks out in two steps: first it freezes its output (ChLKARespToqHSC2 stays at one value, no longer following),
+#   then locks out exactly 1.9 s later unless that ends first (ZS: 8 freezes, the 4 that lasted 1.9 s all locked out).
+#   ZS route 41: a freeze also locked out after the driver had let go, and in a curve with the request at 3 Nm.
+# - ZS route 41: dropping the request for a fixed 0.2 s was too short. Once the EPS ramped its frozen output down more
+#   slowly (1.45 Nm in 0.3 s) the request came back before it had released, and it stayed at 1 with no output at all
+#   (7-29 s, three times), so wait for the release.
+# Triggers: locked out; frozen for 0.24 s with the output 0.3 Nm or more and 0.25 Nm away from the request; following
+# with exactly no output for 0.5 s while requesting 0.5 Nm or more. Replays: ZS caught all 9 freezes and the 3 stuck
+# periods, no other triggers in ZS (31 min) or MG HS (51 min) steering. Most MG HS lockouts also released without a
+# request, a few only once one was sent again: if the EPS hasn't released in EPS_RELEASE_MAX_FRAMES, request for
+# EPS_RETRY_FRAMES before dropping it again.
+EPS_RELEASED = 0
+EPS_FOLLOWING = 1
 EPS_LOCKOUT = 4
-EPS_PAUSE_FRAMES = 10  # steering frames (0.2 s at 50 Hz) without a request
-EPS_RETRY_FRAMES = 50  # steering frames (1 s) of requesting before pausing again
-# The lockout comes in two steps: once it sees the driver steering against the request, the EPS freezes its output
-# (ChLKARespToqHSC2 stays at one value, it no longer follows the request) and locks out exactly 1.9 s later unless the
-# conflict ends first (MG ZS: 8 freezes, the 4 that lasted 1.9 s all locked out, the other 4 ended in 0.3-1.7 s). So
-# treat a freeze like a lockout and pause already then: frozen for 0.24 s, the request 0.25 Nm away from the output
-# and the driver steering against it. ZS: caught all 8 freezes ~0.24 s in; no other triggers in ZS (20 min) or
-# MG HS (51 min) steering.
-EPS_FREEZE_FRAMES = 12  # steering frames
+EPS_RELEASE_MIN_FRAMES = 5  # steering frames (0.1 s at 50 Hz) without a request
+EPS_RELEASE_MAX_FRAMES = 100  # 2 s
+EPS_RETRY_FRAMES = 50  # 1 s
+EPS_FREEZE_FRAMES = 12
+EPS_FREEZE_MIN_OUTPUT = 0.3  # Nm
 EPS_FREEZE_GAP = 25  # request vs output, in request units (0.01 Nm)
-EPS_FREEZE_DRIVER_TORQUE = 0.5  # Nm
-
+EPS_STUCK_FRAMES = 25
+EPS_STUCK_REQUEST = 50  # request units
 
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
@@ -42,36 +50,48 @@ class CarController(CarControllerBase):
     self.button_frames = 0
     self.last_brake_frame = -BRAKE_CANCEL_HOLD_FRAMES
     self.speed_buttons = SpeedButtons()
-    self.eps_pause_frames = 0
+    self.eps_releasing = False
+    self.eps_release_frames = 0
     self.eps_retry_frames = 0
     self.eps_resp_last = 0.0
     self.eps_frozen_frames = 0
+    self.eps_stuck_frames = 0
 
-  def eps_lockout_ok(self, locked: bool) -> bool:
-    """Every steering frame: False while the request is paused for an EPS lockout (see EPS_LOCKOUT)."""
-    if self.eps_pause_frames > 0:
-      self.eps_pause_frames -= 1
-      return False
-    if not locked:
-      self.eps_retry_frames = 0
-      return True
-    if self.eps_retry_frames == 0:
-      # just locked out, or still locked after requesting again for EPS_RETRY_FRAMES: pause
-      self.eps_pause_frames = EPS_PAUSE_FRAMES - 1
-      self.eps_retry_frames = EPS_RETRY_FRAMES
-      return False
-    self.eps_retry_frames -= 1
-    return True
-
-  def eps_frozen(self, CS) -> bool:
-    """Every steering frame: the EPS froze its output against the driver (see EPS_FREEZE_FRAMES)."""
+  def eps_request_ok(self, CS, lat_active: bool) -> bool:
+    """Every steering frame: False while the request is dropped for the EPS to release (see EPS_LOCKOUT)."""
     resp = CS.out.steeringTorqueEps
+    sts = CS.eps_ctrl_sts
     self.eps_frozen_frames = self.eps_frozen_frames + 1 if abs(resp - self.eps_resp_last) < 0.005 else 0
     self.eps_resp_last = resp
-    driver = CS.out.steeringTorque
-    return (CS.eps_ctrl_sts == 1 and self.eps_frozen_frames >= EPS_FREEZE_FRAMES and
-            abs(self.apply_torque_last - resp * 100) > EPS_FREEZE_GAP and
-            resp * driver < 0 and abs(driver) >= EPS_FREEZE_DRIVER_TORQUE)
+    stuck = sts == EPS_FOLLOWING and abs(resp) < 0.005 and abs(self.apply_torque_last) >= EPS_STUCK_REQUEST
+    self.eps_stuck_frames = self.eps_stuck_frames + 1 if stuck else 0
+
+    if self.eps_releasing:
+      self.eps_release_frames += 1
+      released = sts == EPS_RELEASED and self.eps_release_frames >= EPS_RELEASE_MIN_FRAMES
+      timed_out = self.eps_release_frames >= EPS_RELEASE_MAX_FRAMES
+      if not (released or timed_out):
+        return False
+      self.eps_releasing = False
+      self.eps_retry_frames = EPS_RETRY_FRAMES if timed_out else 0
+      self.eps_frozen_frames = 0
+      self.eps_stuck_frames = 0
+      return True
+
+    if not lat_active:
+      self.eps_retry_frames = 0
+      return True
+    if self.eps_retry_frames > 0:
+      self.eps_retry_frames -= 1
+      return True
+
+    frozen = (sts == EPS_FOLLOWING and self.eps_frozen_frames >= EPS_FREEZE_FRAMES and abs(resp) >= EPS_FREEZE_MIN_OUTPUT and
+              abs(self.apply_torque_last - resp * 100) > EPS_FREEZE_GAP)
+    if sts == EPS_LOCKOUT or frozen or self.eps_stuck_frames >= EPS_STUCK_FRAMES:
+      self.eps_releasing = True
+      self.eps_release_frames = 0
+      return False
+    return True
 
   def update(self, CC, CS, now_nanos):
     actuators = CC.actuators
@@ -81,9 +101,7 @@ class CarController(CarControllerBase):
     if self.frame % self.params.STEER_STEP == 0:
       steer = CC.latActive
       if self.CP.carFingerprint in NON_EV_CAR:
-        frozen = self.eps_frozen(CS)  # keep tracking the output every frame
-        locked = CS.eps_ctrl_sts == EPS_LOCKOUT or frozen
-        steer = steer and self.eps_lockout_ok(CC.latActive and locked)
+        steer = self.eps_request_ok(CS, CC.latActive) and steer
 
       if steer:
         new_torque = int(round(actuators.torque * self.params.STEER_MAX))
